@@ -1,0 +1,128 @@
+# ============================================================================
+# SafeMine AI — .gitignore
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# 1. Variables de Entorno y Secretos (Seguridad)
+# ----------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+
+# ----------------------------------------------------------------------------
+# 2. Python / Backend (FastAPI, SQLAlchemy, Pytest)
+# ----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Entornos virtuales de Python
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs y pruebas de Python
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Base de datos SQLite local generada en ejecución
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+safemine.db
+backend/safemine.db
+
+# Archivos subidos dinámicamente por los usuarios (mantener carpeta)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# ----------------------------------------------------------------------------
+# 3. Node.js / Frontend (Next.js 15, React, Tailwind)
+# ----------------------------------------------------------------------------
+node_modules/
+frontend/node_modules/
+.pnp
+.pnp.js
+
+# Build y caché de Next.js
+.next/
+frontend/.next/
+out/
+frontend/out/
+build/
+frontend/build/
+
+# Logs de gestores de paquetes
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# ----------------------------------------------------------------------------
+# 4. IoT / Arduino (Microcontrolador C++)
+# ----------------------------------------------------------------------------
+iot-arduino/build/
+*.hex
+*.elf
+*.bin
+*.eep
+*.lst
+
+# ----------------------------------------------------------------------------
+# 5. Sistema Operativo y Editores / IDEs
+# ----------------------------------------------------------------------------
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editores (VS Code, JetBrains, Sublime)
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
