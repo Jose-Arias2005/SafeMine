@@ -3,6 +3,7 @@ import json
 from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.ws_manager import ws_manager
 from app.db.session import get_db
 from app.models.access_log import AccessLog
@@ -150,38 +151,40 @@ async def verify_worker_epp(
     if not worker:
         raise HTTPException(status_code=404, detail="Trabajador no encontrado.")
 
-    required_epps = ["HEAD_COVER", "HAND_COVER", "FACE_COVER"]
+    required_epps: list[str] = ["HEAD_COVER", "HAND_COVER", "FACE_COVER"]
     if worker.proposal and worker.proposal.required_epps:
         try:
-            required_epps = json.loads(worker.proposal.required_epps)
+            parsed_req = json.loads(worker.proposal.required_epps)
+            if isinstance(parsed_req, list):
+                required_epps = [str(item) for item in parsed_req]
         except Exception:
             pass
 
     image_bytes = await frame.read() if frame else None
 
-    epp_result = verify_epp_with_rekognition(
+    detected_epps = verify_epp_with_rekognition(
         image_bytes=image_bytes,
         required_epps=required_epps,
         simulate_mode=simulate_mode,
     )
 
-    full_name = f"{worker.first_name} {worker.last_name}"
-    now_str = datetime.now().strftime("%H:%M:%S")
+    missing_epps = [epp for epp in required_epps if epp not in detected_epps]
 
-    if epp_result["all_epp_present"]:
+    full_name = f"{worker.first_name} {worker.last_name}"
+
+    if len(missing_epps) == 0:
         status = "VERDE"
-        msg = f"ACCESO CONCEDIDO: {full_name} cuenta con todos sus EPPs obligatorios."
+        msg = "Acceso Autorizado. EPPs completos."
     else:
         status = "ROJO"
-        missing_str = ", ".join(epp_result["missing_epps"])
-        msg = (
-            f"ACCESO DENEGADO — FALTA EPP ({missing_str}). "
-            f"Se marcó automáticamente 'No lleva sus EPPs' en la ficha de {full_name}."
-        )
+        msg = f"Acceso Denegado. Falta portar: {', '.join(missing_epps)}"
         worker.no_lleva_epps = True
         worker.faltas_epp_count = (worker.faltas_epp_count or 0) + 1
+
+        now_str = datetime.now().strftime("%H:%M:%S")
         auto_note = (
-            f"[Auto-Cámara Garita {now_str}] Incumplimiento de EPP detectado: falta {missing_str}."
+            f"[Auto-Cámara Garita {now_str}] Incumplimiento de EPP detectado: "
+            f"falta {', '.join(missing_epps)}."
         )
         if worker.observaciones:
             if auto_note not in worker.observaciones:
@@ -197,37 +200,38 @@ async def verify_worker_epp(
             worker_dni=worker.dni,
             phase="FASE_2_EPP",
             status=status,
-            detected_epps=json.dumps(epp_result["detected_epps"]),
-            missing_epps=json.dumps(epp_result["missing_epps"]),
+            detected_epps=json.dumps(detected_epps),
+            missing_epps=json.dumps(missing_epps),
             message=msg,
         ),
     )
     db.refresh(worker)
 
-    ws_payload = {
-        "event": "GATE_UPDATE",
-        "phase": "FASE_2_EPP",
-        "status": status,
-        "worker_id": worker.id,
-        "worker_name": full_name,
-        "dni": worker.dni,
-        "detectado": epp_result["detected_epps"],
-        "faltante": epp_result["missing_epps"],
-        "no_lleva_epps": worker.no_lleva_epps,
-        "faltas_epp_count": worker.faltas_epp_count,
-        "mode": epp_result["mode"],
-        "message": msg,
-        "timestamp": now_str,
-    }
-    await ws_manager.broadcast(ws_payload)
+    await ws_manager.broadcast(
+        {
+            "type": "EPP_VERIFICATION",
+            "status": status,
+            "worker_id": worker.id,
+            "worker_name": full_name,
+            "worker_dni": worker.dni,
+            "missing_epps": missing_epps,
+            "detected_epps": detected_epps,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    )
 
     return {
         "status": status,
-        "all_epp_present": epp_result["all_epp_present"],
-        "detected_epps": epp_result["detected_epps"],
-        "missing_epps": epp_result["missing_epps"],
-        "mode": epp_result["mode"],
-        "confidence_summary": epp_result["confidence_summary"],
+        "all_epp_present": len(missing_epps) == 0,
+        "required_epps": required_epps,
+        "detected_epps": detected_epps,
+        "missing_epps": missing_epps,
+        "mode": (
+            "SIMULATION"
+            if simulate_mode is not None or not settings.has_real_aws_keys
+            else "AWS_REKOGNITION_CLOUD"
+        ),
+        "confidence_summary": f"EPPs detectados: {len(detected_epps)}/{len(required_epps)}",
         "message": msg,
         "worker": serialize_worker(worker),
     }

@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "SafeMine AI Mobile",
+    "slug": "safemine-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "pe.safemine.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "SafeMine AI utiliza la cámara para capturar tu Certificado Médico EMO y escanear Fotochecks QR / EPPs en Garita."
+      }
+    },
+    "android": {
+      "package": "pe.safemine.mobile",
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#020617",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite a SafeMine AI acceder a la cámara para auditar certificados EMO y controlar EPPs en garita."
+        }
+      ]
+    ]
+  }
+}

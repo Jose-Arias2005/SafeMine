@@ -1,5 +1,5 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import List
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WorkerCandidateInput(BaseModel):
@@ -19,5 +19,21 @@ class WorkerEvaluationItem(BaseModel):
 
 
 class ExamSubmitRequest(BaseModel):
+    # El puntaje se calcula siempre en el servidor; cualquier campo extra
+    # (p. ej. un intento de enviar la nota) se rechaza con 422.
+    model_config = ConfigDict(extra="forbid")
+
     answers: List[int] = Field(..., description="Índices de las respuestas seleccionadas")
-    score_override: Optional[int] = None
+
+
+class ExamQuestionOut(BaseModel):
+    """Pregunta pública del examen. NUNCA incluye la clave de respuesta."""
+
+    id: int
+    question: str
+    options: List[str]
+
+
+class ExamQuestionsResponse(BaseModel):
+    questions: List[ExamQuestionOut]
+    passing_score: int

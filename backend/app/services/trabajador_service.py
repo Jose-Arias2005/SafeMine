@@ -1,6 +1,7 @@
 import json
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.models.worker import WorkerProfile
 from app.repositories.worker_repository import WorkerRepository
 from app.schemas.worker_schema import ExamSubmitRequest
@@ -78,7 +79,14 @@ def refresh_worker_authorization(worker: WorkerProfile):
 class TrabajadorService:
     @staticmethod
     def get_exam_questions() -> dict:
-        return {"questions": SAFETY_EXAM_QUESTIONS, "passing_score": 80}
+        # La clave (`correct_index`) permanece solo en el servidor.
+        return {
+            "questions": [
+                {"id": q["id"], "question": q["question"], "options": q["options"]}
+                for q in SAFETY_EXAM_QUESTIONS
+            ],
+            "passing_score": 80,
+        }
 
     @staticmethod
     def list_workers(db: Session) -> dict:
@@ -116,19 +124,21 @@ class TrabajadorService:
         }
 
     @staticmethod
+    def calculate_score(answers: list[int]) -> int:
+        correct_count = 0
+        for idx, question in enumerate(SAFETY_EXAM_QUESTIONS):
+            if idx < len(answers) and answers[idx] == question["correct_index"]:
+                correct_count += 1
+        return int((correct_count / len(SAFETY_EXAM_QUESTIONS)) * 100)
+
+    @staticmethod
     def submit_exam(db: Session, worker_id: int, req: ExamSubmitRequest) -> dict:
         worker = WorkerRepository.get_by_id(db, worker_id)
         if not worker:
             raise HTTPException(status_code=404, detail="Trabajador no encontrado.")
 
-        if req.score_override is not None:
-            score = max(0, min(100, req.score_override))
-        else:
-            correct_count = 0
-            for idx, question in enumerate(SAFETY_EXAM_QUESTIONS):
-                if idx < len(req.answers) and req.answers[idx] == question["correct_index"]:
-                    correct_count += 1
-            score = int((correct_count / len(SAFETY_EXAM_QUESTIONS)) * 100)
+        # Puntaje determinístico: solo se compara contra el banco de preguntas del servidor.
+        score = TrabajadorService.calculate_score(req.answers)
 
         worker.exam_attempts = (worker.exam_attempts or 0) + 1
         worker.exam_score = score
@@ -173,7 +183,7 @@ class TrabajadorService:
         content_type = file.content_type or "application/pdf"
 
         storage_url = upload_document_to_storage(file_bytes, filename, content_type)
-        ai_validation = validate_medical_certificate_with_gemini(
+        result = validate_medical_certificate_with_gemini(
             file_bytes=file_bytes,
             filename=filename,
             content_type=content_type,
@@ -184,9 +194,24 @@ class TrabajadorService:
 
         worker.medical_cert_filename = filename
         worker.medical_cert_url = storage_url
-        worker.medical_cert_status = ai_validation["status"]
-        worker.medical_ai_feedback = ai_validation["resumen_validacion"]
-        refresh_worker_authorization(worker)
+
+        is_valid = (
+            result.is_medical_certificate is True
+            and result.aptitude_result == "APTO"
+        )
+        if is_valid:
+            worker.medical_cert_status = "VALIDADA_POR_IA"
+            worker.is_authorized = True
+            worker.medical_ai_feedback = (
+                "Certificado médico ocupacional validado con éxito. Estado: APTO."
+            )
+        else:
+            worker.medical_cert_status = "RECHAZADA"
+            worker.is_authorized = False
+            worker.medical_ai_feedback = (
+                result.rejection_reason
+                or "Documento no válido o dictamen médico no apto."
+            )
 
         db.commit()
         db.refresh(worker)
@@ -194,9 +219,17 @@ class TrabajadorService:
         return {
             "message": (
                 "Constancia médica VALIDADA por Gemini IA. ¡Ya estás AUTORIZADO PARA IR A MINA!"
-                if ai_validation["valid"]
+                if is_valid
                 else "El documento fue RECHAZADO por la auditoría médica de IA."
             ),
-            "ai_validation": ai_validation,
+            "audit_result": result.model_dump(),
+            "ai_validation": {
+                **result.model_dump(),
+                "valid": is_valid,
+                "status": worker.medical_cert_status,
+                "model_used": settings.GEMINI_MODEL,
+                "resumen_validacion": worker.medical_ai_feedback,
+                "resultado_aptitud": result.aptitude_result,
+            },
             "worker": serialize_worker(worker),
         }

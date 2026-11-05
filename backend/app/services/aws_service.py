@@ -1,14 +1,11 @@
+import json
 import os
 import uuid
 from typing import Any, Dict, List, Optional
 import boto3
 from app.core.config import settings
 
-EPP_LABELS_ES = {
-    "HEAD_COVER": "Casco de Seguridad (HEAD_COVER)",
-    "HAND_COVER": "Guantes de Seguridad (HAND_COVER)",
-    "FACE_COVER": "Protección Facial / Lentes / Mascarilla (FACE_COVER)",
-}
+CANONICAL_EPP_TYPES: tuple[str, ...] = ("HEAD_COVER", "HAND_COVER", "FACE_COVER")
 
 
 def upload_document_to_storage(file_bytes: bytes, filename: str, content_type: str) -> str:
@@ -44,53 +41,86 @@ def upload_document_to_storage(file_bytes: bytes, filename: str, content_type: s
     return f"/uploads/{safe_name}"
 
 
-def verify_epp_with_rekognition(
-    image_bytes: Optional[bytes],
-    required_epps: List[str],
-    simulate_mode: Optional[str] = None,
-    missing_override: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    if not required_epps:
-        required_epps = ["HEAD_COVER", "HAND_COVER", "FACE_COVER"]
+def extract_detected_epps_from_rekognition(
+    response: Dict[str, Any],
+    min_confidence: float = 80.0,
+) -> List[str]:
+    """
+    Recorre Persons[].BodyParts[].EquipmentDetections[] y extrae etiquetas válidas
+    (HEAD_COVER, HAND_COVER, FACE_COVER) donde CoversBodyPart.Value is True y
+    Confidence >= 80.0%.
+    """
+    threshold = max(80.0, float(min_confidence))
+    found = set()
 
-    if simulate_mode == "CON_EPP":
-        detected_labels = [EPP_LABELS_ES.get(code, code) for code in required_epps]
-        return {
-            "all_epp_present": True,
-            "detected_epps": detected_labels,
-            "missing_epps": [],
-            "mode": "SIMULACION_CON_EPP",
-            "person_detected": True,
-            "confidence_summary": "Casco: 99.4% | Guantes: 97.8% | Protección Facial: 98.2%",
-        }
+    for person in response.get("Persons", []):
+        for body_part in person.get("BodyParts", []):
+            for eq in body_part.get("EquipmentDetections", []):
+                eq_type = eq.get("Type")
+                confidence = float(eq.get("Confidence", 0.0))
+                covers_body = eq.get("CoversBodyPart", {}).get("Value") is True
+                if eq_type in CANONICAL_EPP_TYPES and covers_body and confidence >= threshold:
+                    found.add(eq_type)
+
+    return [epp for epp in CANONICAL_EPP_TYPES if epp in found]
+
+
+def _resolve_simulated_epps(
+    required_epps: List[str],
+    simulate_mode: Optional[str],
+    missing_override: Optional[List[str]] = None,
+) -> List[str]:
+    baseline = list(required_epps) if required_epps else list(CANONICAL_EPP_TYPES)
+
+    if not simulate_mode or simulate_mode == "CON_EPP":
+        return list(baseline)
+
+    if simulate_mode in ("NINGUNO", "NONE", "EMPTY"):
+        return []
 
     if simulate_mode == "SIN_EPP":
-        missing_codes = missing_override or ["HEAD_COVER", "HAND_COVER"]
-        missing_labels = [EPP_LABELS_ES.get(code, code) for code in missing_codes]
-        detected_labels = [
-            EPP_LABELS_ES.get(code, code)
-            for code in required_epps
-            if code not in missing_codes
-        ]
-        return {
-            "all_epp_present": False,
-            "detected_epps": detected_labels,
-            "missing_epps": missing_labels,
-            "mode": "SIMULACION_SIN_EPP",
-            "person_detected": True,
-            "confidence_summary": "Alerta: Persona detectada en garita sin EPPs obligatorios completos.",
-        }
+        to_drop = set(missing_override or ["HAND_COVER", "FACE_COVER"])
+        remaining = [epp for epp in baseline if epp not in to_drop]
+        # Garantiza que en escenario SIN_EPP falte al menos un EPP requerido
+        return [] if len(remaining) == len(baseline) else remaining
 
-    if not settings.has_real_aws_keys or not image_bytes:
-        detected_labels = [EPP_LABELS_ES.get(code, code) for code in required_epps]
-        return {
-            "all_epp_present": True,
-            "detected_epps": detected_labels,
-            "missing_epps": [],
-            "mode": "MOCK_CAMERA_FRAME",
-            "person_detected": True,
-            "confidence_summary": "Modo Mock Activo (Configure AWS_ACCESS_KEY_ID y USE_MOCK_AWS=false para AWS Rekognition real)",
-        }
+    # Permite especificar etiquetas explícitas en pruebas (JSON o lista separada por comas)
+    raw = simulate_mode.strip()
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(x).strip().upper() for x in parsed if str(x).strip().upper() in CANONICAL_EPP_TYPES]
+        except Exception:
+            pass
+
+    explicit = [
+        token.strip().upper()
+        for token in raw.split(",")
+        if token.strip().upper() in CANONICAL_EPP_TYPES
+    ]
+    if explicit:
+        return explicit
+
+    return list(baseline)
+
+
+def verify_epp_with_rekognition(
+    image_bytes: Optional[bytes],
+    required_epps: Optional[List[str]] = None,
+    simulate_mode: Optional[str] = None,
+    missing_override: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Devuelve la lista unificada de protecciones detectadas: `detected_epps: list[str]`.
+    """
+    req_list = list(required_epps) if required_epps is not None else list(CANONICAL_EPP_TYPES)
+
+    if simulate_mode is not None or not settings.has_real_aws_keys:
+        return _resolve_simulated_epps(req_list, simulate_mode, missing_override)
+
+    if not image_bytes:
+        return []
 
     try:
         rekognition = boto3.client(
@@ -99,58 +129,16 @@ def verify_epp_with_rekognition(
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
             region_name=settings.AWS_REGION,
         )
-
         response = rekognition.detect_protective_equipment(
             Image={"Bytes": image_bytes},
             SummarizationAttributes={
-                "MinConfidence": settings.MIN_EPP_CONFIDENCE,
-                "RequiredEquipmentTypes": required_epps,
+                "MinConfidence": max(80.0, float(settings.MIN_EPP_CONFIDENCE)),
+                "RequiredEquipmentTypes": list(CANONICAL_EPP_TYPES),
             },
         )
-
-        persons = response.get("Persons", [])
-        if not persons:
-            return {
-                "all_epp_present": False,
-                "detected_epps": [],
-                "missing_epps": ["Ninguna persona detectada frente a la cámara"],
-                "mode": "AWS_REKOGNITION_CLOUD",
-                "person_detected": False,
-                "confidence_summary": "No se detectó ningún operario en el encuadre.",
-            }
-
-        first_person = persons[0]
-        found_types = set()
-
-        for body_part in first_person.get("BodyParts", []):
-            for eq in body_part.get("EquipmentDetections", []):
-                eq_type = eq.get("Type")
-                confidence = eq.get("Confidence", 0.0)
-                covers_body_part = eq.get("CoversBodyPart", {}).get("Value", True)
-                if confidence >= settings.MIN_EPP_CONFIDENCE and covers_body_part:
-                    found_types.add(eq_type)
-
-        detected_labels = [
-            EPP_LABELS_ES.get(code, code) for code in required_epps if code in found_types
-        ]
-        missing_labels = [
-            EPP_LABELS_ES.get(code, code) for code in required_epps if code not in found_types
-        ]
-
-        return {
-            "all_epp_present": len(missing_labels) == 0,
-            "detected_epps": detected_labels,
-            "missing_epps": missing_labels,
-            "mode": "AWS_REKOGNITION_CLOUD",
-            "person_detected": True,
-            "confidence_summary": f"AWS Rekognition ({settings.MIN_EPP_CONFIDENCE}% min confidence) - Detectados: {len(detected_labels)}/{len(required_epps)}",
-        }
+        return extract_detected_epps_from_rekognition(
+            response, min_confidence=settings.MIN_EPP_CONFIDENCE
+        )
     except Exception as exc:
-        return {
-            "all_epp_present": False,
-            "detected_epps": [],
-            "missing_epps": [f"Error AWS Rekognition: {str(exc)}"],
-            "mode": "ERROR_AWS_REKOGNITION",
-            "person_detected": False,
-            "confidence_summary": "Error de conexión con AWS Rekognition. Verifique sus credenciales en .env.",
-        }
+        print(f"[AWS Rekognition Error] {exc}")
+        return []
