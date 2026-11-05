@@ -66,20 +66,26 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 
 # ----------------------------------------------------------------------------
-# 3. Node.js / Frontend (Next.js 15, React, Tailwind)
+# 3. Node.js / Web Organizacional & Mobile App (Next.js 15, React, Tailwind)
 # ----------------------------------------------------------------------------
 node_modules/
-frontend/node_modules/
+web/node_modules/
+mobile/node_modules/
 .pnp
 .pnp.js
 
-# Build y caché de Next.js
+# Build y caché de Next.js (web/) y Expo / React Native (mobile/)
 .next/
-frontend/.next/
+web/.next/
 out/
-frontend/out/
+web/out/
 build/
-frontend/build/
+web/build/
+.expo/
+mobile/.expo/
+mobile/.expo-shared/
+mobile/dist/
+mobile/web-build/
 
 # Logs de gestores de paquetes
 npm-debug.log*

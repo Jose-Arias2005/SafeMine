@@ -1,8 +1,7 @@
-import base64
-import json
 import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.core.security import create_access_token
 from app.db.seed import hash_password
 from app.db.session import get_db
 from app.models.user import User
@@ -14,15 +13,15 @@ router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 
 
 def create_token(user: User, worker_id: int | None = None) -> str:
-    payload = {
-        "sub": str(user.id),
-        "email": user.email,
-        "username": user.username,
-        "role": user.role,
-        "worker_id": worker_id,
-        "exp": int(time.time()) + 86400 * 7,
-    }
-    return base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
+    return create_access_token(
+        {
+            "user_id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "worker_id": worker_id,
+        }
+    )
 
 
 @router.post("/login")

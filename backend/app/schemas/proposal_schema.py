@@ -12,7 +12,8 @@ class ProposalCreateRequest(BaseModel):
 
 
 class PostulateSquadRequest(BaseModel):
-    provider_id: int
+    # La identidad del proveedor proviene SIEMPRE del token autenticado,
+    # nunca del cuerpo (un `provider_id` enviado por el cliente se ignora).
     workers: List[WorkerCandidateInput]
 
 

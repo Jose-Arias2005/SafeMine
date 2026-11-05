@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from app.core.dependencies import require_role
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.proposal_schema import (
     ProposalCreateRequest,
     SaveEvaluationsRequest,
@@ -17,24 +19,38 @@ def list_all_proposals(db: Session = Depends(get_db)):
 
 
 @router.post("/proposals")
-def create_proposal(req: ProposalCreateRequest, db: Session = Depends(get_db)):
+def create_proposal(
+    req: ProposalCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(["MINERA"])),
+):
     return MineraService.create_proposal(db, req)
 
 
 @router.post("/proposals/{proposal_id}/accept")
-def accept_proposal(proposal_id: int, db: Session = Depends(get_db)):
+def accept_proposal(
+    proposal_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(["MINERA"])),
+):
     return MineraService.accept_proposal_and_generate_accounts(db, proposal_id)
 
 
 @router.put("/proposals/{proposal_id}/evaluations")
 def save_worker_evaluations(
-    proposal_id: int, req: SaveEvaluationsRequest, db: Session = Depends(get_db)
+    proposal_id: int,
+    req: SaveEvaluationsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(["MINERA"])),
 ):
     return MineraService.save_evaluations(db, proposal_id, req)
 
 
 @router.post("/proposals/{proposal_id}/send-report")
 def send_evaluation_report_to_provider(
-    proposal_id: int, req: SendReportRequest, db: Session = Depends(get_db)
+    proposal_id: int,
+    req: SendReportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(["MINERA"])),
 ):
     return MineraService.send_report_to_provider(db, proposal_id, req)

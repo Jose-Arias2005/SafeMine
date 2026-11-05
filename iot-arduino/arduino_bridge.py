@@ -91,7 +91,7 @@ async def listen_kiosco_ws(ws_url: str, ser):
                     status = data.get("status")
                     if status in ("VERDE", "ROJO"):
                         worker_name = data.get("worker_name", f"ID #{data.get('worker_id', '?')}")
-                        missing = data.get("faltante", [])
+                        missing = data.get("missing_epps") or data.get("faltante", [])
                         trigger_hardware(ser, status, worker_name, missing)
         except (websockets.ConnectionClosed, ConnectionRefusedError, OSError) as exc:
             print(f"[WS] Conexión perdida o servidor no disponible ({exc}). Reintentando en 3 segundos...")
