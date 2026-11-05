@@ -122,6 +122,47 @@ export interface NativeUploadAsset {
   mimeType: string;
 }
 
+export interface CachedWorkerRosterItem {
+  worker_id: number;
+  id: number;
+  dni: string;
+  full_name: string;
+  position: string;
+  company_name?: string | null;
+  is_authorized: boolean;
+  exam_passed: boolean;
+  exam_score: number;
+  medical_cert_status: string;
+  qr_token: string;
+  required_epps: string[];
+}
+
+export interface AuthorizedRosterResponse {
+  total: number;
+  roster: CachedWorkerRosterItem[];
+  downloaded_at: string;
+}
+
+export interface OfflineAccessLog {
+  worker_id: number | null;
+  worker_name: string;
+  worker_dni: string;
+  phase: string;
+  status: "VERDE" | "ROJO" | "QR_OK";
+  detected_epps: string[];
+  missing_epps: string[];
+  missing_items?: string[];
+  message: string;
+  timestamp: string;
+}
+
+export interface SyncOfflineLogsResponse {
+  success: boolean;
+  synced_count: number;
+  message: string;
+  synced_at: string;
+}
+
 export type RootStackParamList = {
   Login: undefined;
   InductionQuiz: { workerId: number };

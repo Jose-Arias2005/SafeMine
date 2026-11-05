@@ -33,6 +33,11 @@ El sistema ha evolucionado de una versión monolítica a un **ecosistema moderno
    - Puente serial WebSocket en Python (`arduino_bridge.py`) y firmware C++ (`safemine_access_control.ino`).
    - Semáforo físico: LED Verde (Pin 8 - Acceso Concedido) y LED Rojo + Buzzer de alerta intermitente (Pin 9 - Acceso Denegado por falta de EPPs o credencial inválida).
 
+5. **Infraestructura 100% AWS Cloud y Sincronización Offline-First en Terreno Minero**:
+   - Orquestación con `docker-compose.yml` para desplegar en un solo comando en **AWS EC2** (`safemine-backend` en puerto 8000 y `safemine-web` en puerto 3000) con persistencia en **AWS RDS / EBS** y almacenamiento en **Amazon S3**.
+   - Arquitectura **Store-and-Forward** en Garita Móvil: valida operarios con el padrón descargado (`GET /api/kiosco/authorized-roster`), encola inspecciones durante cortes de señal satelital en `AsyncStorage` y las sincroniza en bloque hacia AWS (`POST /api/kiosco/sync-offline-logs`).
+   - Guía completa de despliegue y guión de demostración en vivo documentados en [`AWS_DEPLOYMENT_AND_OFFLINE.md`](file:///c:/Users/sucij/OneDrive/Desktop/SafeMine/AWS_DEPLOYMENT_AND_OFFLINE.md).
+
 ---
 
 ## 🏛️ Arquitectura del Sistema

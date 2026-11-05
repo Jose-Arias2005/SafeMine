@@ -9,13 +9,24 @@ from app.db.session import get_db
 from app.models.access_log import AccessLog
 from app.repositories.access_log_repository import AccessLogRepository
 from app.repositories.worker_repository import WorkerRepository
-from app.schemas.kiosco_schema import VerifyQRRequest
+from app.schemas.kiosco_schema import (
+    AuthorizedRosterResponse,
+    SyncOfflineLogsRequest,
+    SyncOfflineLogsResponse,
+    VerifyQRRequest,
+    WorkerRosterItem,
+)
 from app.services.aws_service import verify_epp_with_rekognition
 from app.services.minera_service import serialize_worker
 
 router = APIRouter(
     prefix="/api/vision",
     tags=["Módulo 4: Kiosco / Cámara en Garita + Rekognition + Arduino"],
+)
+
+kiosco_router = APIRouter(
+    prefix="/api/kiosco",
+    tags=["Módulo 4: Garita Offline & Sincronización Store-and-Forward"],
 )
 
 
@@ -261,3 +272,154 @@ def get_access_logs(db: Session = Depends(get_db)):
             for l in logs
         ],
     }
+
+
+@router.get("/authorized-roster", response_model=AuthorizedRosterResponse)
+@kiosco_router.get("/authorized-roster", response_model=AuthorizedRosterResponse)
+def get_authorized_roster(db: Session = Depends(get_db)):
+    workers = WorkerRepository.list_all(db)
+    items = []
+    for w in workers:
+        required_epps = ["HEAD_COVER", "HAND_COVER", "FACE_COVER"]
+        if w.proposal and w.proposal.required_epps:
+            try:
+                parsed_epps = json.loads(w.proposal.required_epps)
+                if isinstance(parsed_epps, list):
+                    required_epps = [str(x) for x in parsed_epps]
+            except Exception:
+                pass
+
+        company = (
+            w.proposal.provider_company_name
+            if (w.proposal and w.proposal.provider_company_name)
+            else "Contratista Minero"
+        )
+        full_name = f"{w.first_name} {w.last_name}"
+        qr_token = json.dumps(
+            {
+                "app": "SAFEMINE_AI",
+                "worker_id": w.id,
+                "dni": w.dni,
+                "name": full_name,
+            }
+        )
+
+        items.append(
+            WorkerRosterItem(
+                worker_id=w.id,
+                id=w.id,
+                dni=w.dni,
+                full_name=full_name,
+                position=w.position,
+                company_name=company,
+                is_authorized=bool(w.is_authorized),
+                exam_passed=bool(w.exam_passed),
+                exam_score=w.exam_score or 0,
+                medical_cert_status=w.medical_cert_status or "PENDIENTE",
+                qr_token=qr_token,
+                required_epps=required_epps,
+            )
+        )
+
+    return AuthorizedRosterResponse(
+        total=len(items),
+        roster=items,
+        downloaded_at=datetime.utcnow().isoformat(),
+    )
+
+
+@router.post("/sync-offline-logs", response_model=SyncOfflineLogsResponse)
+@kiosco_router.post("/sync-offline-logs", response_model=SyncOfflineLogsResponse)
+async def sync_offline_logs(req: SyncOfflineLogsRequest, db: Session = Depends(get_db)):
+    if not req.logs:
+        return SyncOfflineLogsResponse(
+            success=True,
+            synced_count=0,
+            message="No hay registros pendientes para sincronizar.",
+            synced_at=datetime.utcnow().isoformat(),
+        )
+
+    processed_count = 0
+    now_str = datetime.now().strftime("%H:%M:%S")
+
+    for entry in req.logs:
+        worker = None
+        if entry.worker_id:
+            worker = WorkerRepository.get_by_id(db, int(entry.worker_id))
+        if not worker and entry.worker_dni:
+            worker = WorkerRepository.get_by_dni(db, str(entry.worker_dni))
+
+        missing = entry.missing_items or entry.missing_epps or []
+        detected = entry.detected_epps or []
+        status = (entry.status or "VERDE").upper().strip()
+        phase = entry.phase or ("FASE_2_EPP" if len(missing) > 0 else "FASE_1_QR")
+
+        full_name = entry.worker_name or (
+            f"{worker.first_name} {worker.last_name}"
+            if worker
+            else f"DNI {entry.worker_dni or 'Desconocido'}"
+        )
+        dni = entry.worker_dni or (worker.dni if worker else "SIN_DNI")
+        w_id = worker.id if worker else entry.worker_id
+
+        msg = entry.message
+        if not msg:
+            if status == "VERDE":
+                msg = "Acceso Autorizado (Sincronizado Offline). EPPs completos."
+            else:
+                msg = f"Acceso Denegado (Sincronizado Offline). Falta portar: {', '.join(missing) if missing else 'Acreditación insuficiente'}"
+
+        log_dt = datetime.utcnow()
+        if entry.timestamp:
+            try:
+                log_dt = datetime.fromisoformat(entry.timestamp.replace("Z", "+00:00"))
+            except Exception:
+                log_dt = datetime.utcnow()
+
+        if status == "ROJO" and (
+            phase == "FASE_2_EPP" or len(missing) > 0 or "EPP" in (msg or "")
+        ):
+            if worker:
+                worker.no_lleva_epps = True
+                worker.faltas_epp_count = (worker.faltas_epp_count or 0) + 1
+                auto_note = (
+                    f"[Sync Garita Offline {now_str}] Incumplimiento de EPP: "
+                    f"falta {', '.join(missing) if missing else 'EPP obligatorio'}."
+                )
+                if worker.observaciones:
+                    if auto_note not in worker.observaciones:
+                        worker.observaciones = f"{worker.observaciones} | {auto_note}"
+                else:
+                    worker.observaciones = auto_note
+
+        access_log = AccessLog(
+            worker_id=w_id,
+            worker_name=full_name,
+            worker_dni=dni,
+            phase=phase,
+            status=status,
+            detected_epps=json.dumps(detected),
+            missing_epps=json.dumps(missing),
+            message=msg,
+            timestamp=log_dt,
+        )
+        db.add(access_log)
+        processed_count += 1
+
+    db.commit()
+
+    ws_event = {
+        "event": "OFFLINE_SYNC_COMPLETED",
+        "type": "SYNC_BATCH",
+        "synced_count": processed_count,
+        "timestamp": now_str,
+        "message": f"Sincronizados exitosamente {processed_count} eventos acumulados desde Garita Offline hacia AWS RDS.",
+    }
+    await ws_manager.broadcast(ws_event)
+
+    return SyncOfflineLogsResponse(
+        success=True,
+        synced_count=processed_count,
+        message=f"{processed_count} registros sincronizados con éxito a AWS RDS",
+        synced_at=datetime.utcnow().isoformat(),
+    )

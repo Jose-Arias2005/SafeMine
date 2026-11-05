@@ -1,10 +1,19 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AuthUser, CachedOfflineBadge, Worker } from "../types";
+import {
+  AuthUser,
+  CachedOfflineBadge,
+  CachedWorkerRosterItem,
+  OfflineAccessLog,
+  Worker,
+} from "../types";
 
 export const TOKEN_STORAGE_KEY = "safemine_token";
 export const USER_STORAGE_KEY = "safemine_user";
 export const OFFLINE_BADGE_KEY = "safemine_offline_badge";
 export const API_URL_OVERRIDE_KEY = "safemine_api_url_override";
+export const ROSTER_STORAGE_KEY = "safemine_cached_roster";
+export const PENDING_LOGS_STORAGE_KEY = "safemine_pending_offline_logs";
+export const GATE_OFFLINE_MODE_KEY = "safemine_gate_offline_mode";
 
 export async function saveAuthSession(
   token: string,
@@ -87,4 +96,77 @@ export async function setApiUrlOverride(url: string | null): Promise<void> {
     await AsyncStorage.setItem(API_URL_OVERRIDE_KEY, cleaned);
   }
 }
+
+/**
+ * Padrón Cacheado en Garita (Authorized Workers Roster)
+ */
+export async function saveCachedRoster(
+  roster: CachedWorkerRosterItem[]
+): Promise<void> {
+  await AsyncStorage.setItem(ROSTER_STORAGE_KEY, JSON.stringify(roster));
+}
+
+export async function loadCachedRoster(): Promise<CachedWorkerRosterItem[]> {
+  try {
+    const raw = await AsyncStorage.getItem(ROSTER_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function clearCachedRoster(): Promise<void> {
+  await AsyncStorage.removeItem(ROSTER_STORAGE_KEY);
+}
+
+/**
+ * Cola Local Store-and-Forward de Garita (Pending Access Logs)
+ */
+export async function getPendingOfflineLogs(): Promise<OfflineAccessLog[]> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_LOGS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function enqueueOfflineLog(
+  log: OfflineAccessLog
+): Promise<number> {
+  const current = await getPendingOfflineLogs();
+  current.push(log);
+  await AsyncStorage.setItem(PENDING_LOGS_STORAGE_KEY, JSON.stringify(current));
+  return current.length;
+}
+
+export async function clearPendingOfflineLogs(): Promise<void> {
+  await AsyncStorage.removeItem(PENDING_LOGS_STORAGE_KEY);
+}
+
+export async function getPendingLogsCount(): Promise<number> {
+  const current = await getPendingOfflineLogs();
+  return current.length;
+}
+
+/**
+ * Estado persistente del Modo Offline en Garita
+ */
+export async function getGateOfflineMode(): Promise<boolean> {
+  try {
+    const val = await AsyncStorage.getItem(GATE_OFFLINE_MODE_KEY);
+    return val === "true";
+  } catch {
+    return false;
+  }
+}
+
+export async function setGateOfflineMode(enabled: boolean): Promise<void> {
+  await AsyncStorage.setItem(GATE_OFFLINE_MODE_KEY, enabled ? "true" : "false");
+}
+
 

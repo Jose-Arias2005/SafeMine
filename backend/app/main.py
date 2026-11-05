@@ -56,6 +56,7 @@ app.include_router(minera_controller.router)
 app.include_router(proveedor_controller.router)
 app.include_router(trabajador_controller.router)
 app.include_router(kiosco_controller.router)
+app.include_router(kiosco_controller.kiosco_router)
 
 
 @app.get("/api/status")

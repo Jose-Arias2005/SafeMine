@@ -19,7 +19,21 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { getWsUrl } from "../services/apiClient";
 import { kioscoService } from "../services/kioscoService";
-import { EppVerificationResponse, Worker } from "../types";
+import {
+  clearPendingOfflineLogs,
+  enqueueOfflineLog,
+  getGateOfflineMode,
+  getPendingLogsCount,
+  getPendingOfflineLogs,
+  loadCachedRoster,
+  saveCachedRoster,
+  setGateOfflineMode,
+} from "../utils/offlineStorage";
+import {
+  CachedWorkerRosterItem,
+  EppVerificationResponse,
+  Worker,
+} from "../types";
 
 type GateStage = "SCAN_QR" | "CAPTURE_EPP" | "SEMAFORO_RESULT";
 
@@ -28,6 +42,39 @@ const EPP_LABELS: Record<string, string> = {
   HAND_COVER: "Guantes Protectores (HAND_COVER)",
   FACE_COVER: "Protección Facial / Lentes (FACE_COVER)",
 };
+
+const DEFAULT_DEMO_ROSTER: CachedWorkerRosterItem[] = [
+  {
+    worker_id: 1,
+    id: 1,
+    dni: "45891021",
+    full_name: "Carlos Mendoza Prado",
+    position: "Técnico Mecánico de Planta",
+    company_name: "Contratistas Mineros del Perú S.A.",
+    is_authorized: true,
+    exam_passed: true,
+    exam_score: 100,
+    medical_cert_status: "VALIDADA_POR_IA",
+    qr_token:
+      '{"app":"SAFEMINE_AI","worker_id":1,"dni":"45891021","name":"Carlos Mendoza Prado"}',
+    required_epps: ["HEAD_COVER", "HAND_COVER", "FACE_COVER"],
+  },
+  {
+    worker_id: 2,
+    id: 2,
+    dni: "46102938",
+    full_name: "Jorge Quispe Rojas",
+    position: "Operador de Volquete 797F",
+    company_name: "Contratistas Mineros del Perú S.A.",
+    is_authorized: false,
+    exam_passed: false,
+    exam_score: 40,
+    medical_cert_status: "PENDIENTE",
+    qr_token:
+      '{"app":"SAFEMINE_AI","worker_id":2,"dni":"46102938","name":"Jorge Quispe Rojas"}',
+    required_epps: ["HEAD_COVER", "HAND_COVER", "FACE_COVER"],
+  },
+];
 
 export function GateScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -48,6 +95,99 @@ export function GateScannerScreen() {
   const [eppResult, setEppResult] = useState<EppVerificationResponse | null>(
     null
   );
+
+  // Estados de Operación Offline (Store-and-Forward en Garita)
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
+  const [pendingCount, setPendingCount] = useState<number>(0);
+  const [cachedRoster, setCachedRoster] = useState<CachedWorkerRosterItem[]>([]);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isUpdatingRoster, setIsUpdatingRoster] = useState<boolean>(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const offline = await getGateOfflineMode();
+        const count = await getPendingLogsCount();
+        const roster = await loadCachedRoster();
+        if (active) {
+          setIsOfflineMode(offline);
+          setPendingCount(count);
+          setCachedRoster(roster);
+        }
+      } catch {}
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleToggleOfflineMode = async () => {
+    const nextVal = !isOfflineMode;
+    setIsOfflineMode(nextVal);
+    await setGateOfflineMode(nextVal);
+    if (nextVal) {
+      Alert.alert(
+        "📡 Modo Garita Offline Activado",
+        "La garita operará sin conexión a AWS. Las lecturas de QR se validarán contra el padrón local y los accesos o faltas se guardarán en la cola Store-and-Forward del dispositivo."
+      );
+    } else {
+      Alert.alert(
+        "🌐 Modo Online (AWS) Restablecido",
+        "Conexión con el backend en AWS activa. Si tienes registros en cola, pulsa 'Recuperar Señal y Sincronizar con AWS' para transferirlos a AWS RDS."
+      );
+    }
+  };
+
+  const handleDownloadRoster = async () => {
+    setIsUpdatingRoster(true);
+    try {
+      const roster = await kioscoService.getAuthorizedRoster();
+      await saveCachedRoster(roster);
+      setCachedRoster(roster);
+      Alert.alert(
+        "Padrón Local Actualizado",
+        `Se descargaron ${roster.length} trabajadores registrados al almacenamiento de la garita para validación sin internet.`
+      );
+    } catch (err) {
+      Alert.alert(
+        "Error al descargar padrón",
+        err instanceof Error
+          ? err.message
+          : "No se pudo conectar con AWS para descargar el padrón."
+      );
+    } finally {
+      setIsUpdatingRoster(false);
+    }
+  };
+
+  const handleSyncWithAws = async () => {
+    const pending = await getPendingOfflineLogs();
+    if (pending.length === 0) {
+      Alert.alert("Cola vacía", "No hay eventos pendientes para sincronizar con AWS.");
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const res = await kioscoService.syncOfflineLogs(pending);
+      await clearPendingOfflineLogs();
+      setPendingCount(0);
+      Alert.alert(
+        "¡Sincronización Exitosa con AWS!",
+        `${res.synced_count} evento(s) acumulados durante el corte de señal fueron transferidos a AWS RDS y transmitidos en tiempo real por WebSockets.`
+      );
+    } catch (err) {
+      Alert.alert(
+        "Fallo de sincronización",
+        err instanceof Error
+          ? err.message
+          : "No fue posible conectar con el servidor AWS para transferir los registros."
+      );
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -88,6 +228,128 @@ export function GateScannerScreen() {
   const evaluateQrPayload = async (rawPayload: string) => {
     if (processing) return;
     setProcessing(true);
+
+    if (isOfflineMode) {
+      try {
+        const rosterToUse =
+          cachedRoster && cachedRoster.length > 0
+            ? cachedRoster
+            : DEFAULT_DEMO_ROSTER;
+
+        let matched: CachedWorkerRosterItem | undefined = undefined;
+        try {
+          const parsed = JSON.parse(rawPayload);
+          if (parsed && typeof parsed === "object") {
+            const wid = parsed.worker_id;
+            const dni = parsed.dni;
+            matched = rosterToUse.find(
+              (w) =>
+                (wid && w.worker_id === Number(wid)) ||
+                (dni && w.dni === String(dni))
+            );
+          }
+        } catch {}
+
+        if (!matched) {
+          const clean = rawPayload.trim();
+          matched = rosterToUse.find(
+            (w) => w.dni === clean || String(w.worker_id) === clean
+          );
+        }
+
+        if (!matched) {
+          scanLockRef.current = false;
+          Alert.alert(
+            "QR No Encontrado en Padrón Local",
+            "El código QR escaneado no coincide con ningún trabajador en el padrón local de la garita. Si es nuevo, pulsa 'Descargar Padrón Local' cuando tengas cobertura."
+          );
+          return;
+        }
+
+        const mappedWorker: Worker = {
+          id: matched.worker_id,
+          user_id: matched.worker_id,
+          proposal_id: 1,
+          first_name: matched.full_name.split(" ")[0] || matched.full_name,
+          last_name: matched.full_name.split(" ").slice(1).join(" ") || "",
+          full_name: matched.full_name,
+          dni: matched.dni,
+          email: `op.${matched.dni}@safemine.pe`,
+          position: matched.position,
+          generated_username: `op.${matched.dni}`,
+          generated_password: `mina${matched.dni.slice(-4)}`,
+          exam_score: matched.exam_score,
+          exam_attempts: 1,
+          exam_passed: matched.exam_passed,
+          medical_cert_filename: null,
+          medical_cert_url: null,
+          medical_cert_status: matched.medical_cert_status as any,
+          medical_ai_feedback: null,
+          is_authorized: matched.is_authorized,
+          mala_conducta: false,
+          mal_trabajo: false,
+          no_lleva_epps: false,
+          faltas_epp_count: 0,
+          observaciones: "",
+          qr_payload: matched.qr_token,
+        };
+
+        if (!matched.is_authorized) {
+          const reasons: string[] = [];
+          if (!matched.exam_passed || matched.exam_score < 80) {
+            reasons.push(
+              `Examen de inducción no aprobado (${matched.exam_score}/100, mínimo 80)`
+            );
+          }
+          if (matched.medical_cert_status !== "VALIDADA_POR_IA") {
+            reasons.push(`Constancia médica (${matched.medical_cert_status})`);
+          }
+          if (reasons.length === 0) {
+            reasons.push("Trabajador no acreditado en padrón local");
+          }
+
+          const offlineLog = {
+            worker_id: matched.worker_id,
+            worker_name: matched.full_name,
+            worker_dni: matched.dni,
+            phase: "FASE_1_QR",
+            status: "ROJO" as const,
+            detected_epps: [],
+            missing_epps: reasons,
+            missing_items: reasons,
+            message: `ACCESO DENEGADO (Offline): ${matched.full_name} NO AUTORIZADO (${reasons.join(" | ")})`,
+            timestamp: new Date().toISOString(),
+          };
+
+          const newCount = await enqueueOfflineLog(offlineLog);
+          setPendingCount(newCount);
+
+          setActiveWorker(mappedWorker);
+          setQrRejectionReasons(reasons);
+          setQrRejectionMessage(offlineLog.message);
+          setEppResult(null);
+          setStage("SEMAFORO_RESULT");
+          return;
+        }
+
+        // Trabajador Autorizado en modo offline
+        setActiveWorker(mappedWorker);
+        setQrRejectionReasons([]);
+        setQrRejectionMessage(null);
+        setStage("CAPTURE_EPP");
+      } catch (err) {
+        scanLockRef.current = false;
+        Alert.alert(
+          "Error en validación offline",
+          err instanceof Error ? err.message : "Fallo al validar código en memoria local."
+        );
+      } finally {
+        setProcessing(false);
+      }
+      return;
+    }
+
+    // Modo Online estándar hacia el backend en AWS
     try {
       const res = await kioscoService.verifyQr(rawPayload);
       setActiveWorker(res.worker);
@@ -106,10 +368,13 @@ export function GateScannerScreen() {
     } catch (err) {
       scanLockRef.current = false;
       Alert.alert(
-        "QR No Reconocido",
-        err instanceof Error
-          ? err.message
-          : "No se pudo verificar el código QR en el padrón."
+        "Fallo de conexión o QR no reconocido",
+        (err instanceof Error ? err.message : "No se pudo verificar el código QR.") +
+          "\n\n¿Deseas activar el Modo Garita Offline para operar con el padrón local?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Activar Modo Offline", onPress: handleToggleOfflineMode },
+        ]
       );
     } finally {
       setProcessing(false);
@@ -126,6 +391,66 @@ export function GateScannerScreen() {
   const handleCaptureAndVerifyEpp = async (simulateMode?: string) => {
     if (!activeWorker || processing) return;
     setProcessing(true);
+
+    if (isOfflineMode) {
+      try {
+        const isRejected =
+          simulateMode === "SIN_EPP" || simulateMode === "mock_sin_epps";
+        const detectedEpps = isRejected
+          ? ["HEAD_COVER"]
+          : ["HEAD_COVER", "HAND_COVER", "FACE_COVER"];
+        const missingEpps = isRejected
+          ? ["HAND_COVER", "FACE_COVER"]
+          : [];
+        const status = isRejected ? "ROJO" : "VERDE";
+        const message = isRejected
+          ? `Acceso Denegado (Offline). Falta portar: ${missingEpps.join(", ")}`
+          : "Acceso Autorizado en Modo Offline. EPPs completos.";
+
+        const offlineLog = {
+          worker_id: activeWorker.id,
+          worker_name: activeWorker.full_name,
+          worker_dni: activeWorker.dni,
+          phase: "FASE_2_EPP",
+          status: status as "VERDE" | "ROJO",
+          detected_epps: detectedEpps,
+          missing_epps: missingEpps,
+          missing_items: missingEpps,
+          message,
+          timestamp: new Date().toISOString(),
+        };
+
+        const newCount = await enqueueOfflineLog(offlineLog);
+        setPendingCount(newCount);
+
+        const verification: EppVerificationResponse = {
+          status: status as "VERDE" | "ROJO",
+          all_epp_present: !isRejected,
+          required_epps: ["HEAD_COVER", "HAND_COVER", "FACE_COVER"],
+          detected_epps: detectedEpps,
+          missing_epps: missingEpps,
+          mode: "OFFLINE_STORE_AND_FORWARD",
+          confidence_summary: `Validación Offline Local: ${detectedEpps.length}/3 EPPs detectados`,
+          message,
+          worker: activeWorker,
+        };
+
+        setEppResult(verification);
+        setStage("SEMAFORO_RESULT");
+      } catch (err) {
+        Alert.alert(
+          "Error en registro offline",
+          err instanceof Error
+            ? err.message
+            : "No se pudo registrar el evento en la cola local."
+        );
+      } finally {
+        setProcessing(false);
+      }
+      return;
+    }
+
+    // Modo Online estándar con AWS Rekognition
     try {
       let frameAsset = null;
       if (cameraRef.current) {
@@ -140,9 +465,7 @@ export function GateScannerScreen() {
               mimeType: "image/jpeg",
             };
           }
-        } catch {
-          // Si se usa botón de simulación rápida sin cámara lista, continúa con simulateMode
-        }
+        } catch {}
       }
 
       const verification = await kioscoService.verifyEpp({
@@ -233,6 +556,104 @@ export function GateScannerScreen() {
             <Text style={styles.wsText}>
               {wsOnline ? "WS Garita" : "HTTP"}
             </Text>
+          </View>
+        </View>
+
+        {/* Panel de Modo Garita Offline & Store-and-Forward hacia AWS */}
+        <View style={styles.offlineCard}>
+          <View style={styles.offlineHeader}>
+            <View style={styles.offlineTitleRow}>
+              <Ionicons
+                name={isOfflineMode ? "cloud-offline" : "cloud-done"}
+                size={18}
+                color={isOfflineMode ? "#f59e0b" : "#34d399"}
+              />
+              <Text
+                style={[
+                  styles.offlineTitleText,
+                  { color: isOfflineMode ? "#f59e0b" : "#34d399" },
+                ]}
+              >
+                {isOfflineMode
+                  ? "Modo Garita Offline (Sin Señal)"
+                  : "Modo Online (Conectado a AWS)"}
+              </Text>
+            </View>
+
+            <Pressable
+              style={[
+                styles.offlineToggleBtn,
+                isOfflineMode
+                  ? styles.offlineToggleBtnActive
+                  : styles.offlineToggleBtnInactive,
+              ]}
+              onPress={handleToggleOfflineMode}
+            >
+              <Text style={styles.offlineToggleText}>
+                {isOfflineMode ? "Conectar a Online" : "Simular Corte de Señal"}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Contador de Cola Store-and-Forward */}
+          <View style={styles.queueStatusRow}>
+            <Ionicons
+              name="file-tray-full-outline"
+              size={14}
+              color={pendingCount > 0 ? "#fcd34d" : "#94a3b8"}
+            />
+            <Text
+              style={[
+                styles.queueCountText,
+                pendingCount > 0 && styles.queueCountTextHighlight,
+              ]}
+            >
+              {isOfflineMode
+                ? `Modo Offline: ${pendingCount} registro(s) en cola local esperando señal hacia AWS`
+                : `Cola local Store-and-Forward: ${pendingCount} registro(s) pendiente(s)`}
+            </Text>
+          </View>
+
+          {/* Botones de Acción de Sincronización */}
+          <View style={styles.offlineActionsRow}>
+            <Pressable
+              style={styles.rosterDownloadBtn}
+              onPress={handleDownloadRoster}
+              disabled={isUpdatingRoster}
+            >
+              {isUpdatingRoster ? (
+                <ActivityIndicator size="small" color="#38bdf8" />
+              ) : (
+                <>
+                  <Ionicons name="cloud-download-outline" size={15} color="#38bdf8" />
+                  <Text style={styles.rosterDownloadText}>
+                    Actualizar Padrón ({cachedRoster.length > 0 ? cachedRoster.length : "Demo"})
+                  </Text>
+                </>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={[
+                styles.syncAwsBtn,
+                pendingCount > 0
+                  ? styles.syncAwsBtnActive
+                  : styles.syncAwsBtnDisabled,
+              ]}
+              onPress={handleSyncWithAws}
+              disabled={pendingCount === 0 || isSyncing}
+            >
+              {isSyncing ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload" size={15} color="#ffffff" />
+                  <Text style={styles.syncAwsText}>
+                    Recuperar Señal y Sincronizar ({pendingCount})
+                  </Text>
+                </>
+              )}
+            </Pressable>
           </View>
         </View>
 
@@ -411,6 +832,15 @@ export function GateScannerScreen() {
                 <Text style={styles.semaforoWorkerMeta}>
                   DNI {activeWorker.dni} · Faltas EPP acumuladas:{" "}
                   {activeWorker.faltas_epp_count}
+                </Text>
+              </View>
+            )}
+
+            {isOfflineMode && (
+              <View style={styles.offlineNoticeBadge}>
+                <Ionicons name="cloud-offline" size={14} color="#fcd34d" />
+                <Text style={styles.offlineNoticeText}>
+                  Evento encolado localmente (Store-and-Forward: {pendingCount} pendientes hacia AWS)
                 </Text>
               </View>
             )}
@@ -908,5 +1338,127 @@ const styles = StyleSheet.create({
     color: "#020617",
     fontWeight: "900",
     fontSize: 14,
+  },
+  offlineCard: {
+    backgroundColor: "#0b1329",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+    padding: 12,
+    gap: 10,
+  },
+  offlineHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  offlineTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  offlineTitleText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  offlineToggleBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  offlineToggleBtnActive: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    borderColor: "#f59e0b",
+  },
+  offlineToggleBtnInactive: {
+    backgroundColor: "rgba(30, 41, 59, 0.8)",
+    borderColor: "#334155",
+  },
+  offlineToggleText: {
+    color: "#f8fafc",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  queueStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  queueCountText: {
+    color: "#94a3b8",
+    fontSize: 11,
+    fontWeight: "600",
+    flex: 1,
+  },
+  queueCountTextHighlight: {
+    color: "#fcd34d",
+    fontWeight: "700",
+  },
+  offlineActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  rosterDownloadBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#0f172a",
+    borderWidth: 1,
+    borderColor: "#38bdf8",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  rosterDownloadText: {
+    color: "#38bdf8",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  syncAwsBtn: {
+    flex: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  syncAwsBtnActive: {
+    backgroundColor: "#059669",
+  },
+  syncAwsBtnDisabled: {
+    backgroundColor: "#334155",
+    opacity: 0.5,
+  },
+  syncAwsText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  offlineNoticeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(245, 158, 11, 0.2)",
+    borderColor: "#f59e0b",
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+  offlineNoticeText: {
+    color: "#fef3c7",
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
   },
 });

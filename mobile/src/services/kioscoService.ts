@@ -1,7 +1,11 @@
 import {
+  AuthorizedRosterResponse,
+  CachedWorkerRosterItem,
   EppVerificationResponse,
   GateLog,
   NativeUploadAsset,
+  OfflineAccessLog,
+  SyncOfflineLogsResponse,
   Worker,
 } from "../types";
 import { apiFetch } from "./apiClient";
@@ -53,6 +57,30 @@ export const kioscoService = {
     logs: GateLog[];
   }> {
     return apiFetch("/api/vision/logs");
+  },
+
+  async getAuthorizedRoster(): Promise<CachedWorkerRosterItem[]> {
+    try {
+      const res = await apiFetch<AuthorizedRosterResponse>(
+        "/api/kiosco/authorized-roster"
+      );
+      return res.roster || [];
+    } catch {
+      const res = await apiFetch<AuthorizedRosterResponse>(
+        "/api/vision/authorized-roster"
+      );
+      return res.roster || [];
+    }
+  },
+
+  async syncOfflineLogs(
+    logs: OfflineAccessLog[]
+  ): Promise<SyncOfflineLogsResponse> {
+    return apiFetch<SyncOfflineLogsResponse>("/api/kiosco/sync-offline-logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ logs }),
+    });
   },
 };
 
