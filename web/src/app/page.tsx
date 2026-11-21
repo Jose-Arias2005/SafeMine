@@ -8,27 +8,41 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
+  Thermometer,
+  Droplets,
+  Ruler,
+  UserCheck,
+  Radio,
+  ShieldCheck,
+  ShieldAlert,
+  Clock,
 } from "lucide-react";
 import PageContainer from "@/components/layout/PageContainer";
 import { Tabs } from "@/components/ui/Tabs";
 import { Modal } from "@/components/ui/Modal";
+import { Badge } from "@/components/ui/Badge";
 import CreateProposalModal from "@/components/minera/CreateProposalModal";
 import ProposalsList from "@/components/minera/ProposalsList";
 import WorkerEvaluationTable from "@/components/minera/WorkerEvaluationTable";
 import { mineraService } from "@/services/mineraService";
 import { WS_URL } from "@/services/apiClient";
 import {
+  AccessLogEntry,
   GeneratedCredential,
+  HardwareTelemetry,
   Proposal,
   WorkerEvaluationItem,
 } from "@/types";
 import { generatePerformanceReportPDF } from "@/utils/pdfGenerator";
 
 export default function MineraHomePage() {
-  const [activeTab, setActiveTab] = useState<"convocatorias" | "evaluacion">(
-    "convocatorias"
-  );
+  const [activeTab, setActiveTab] = useState<
+    "convocatorias" | "evaluacion" | "bitacora"
+  >("convocatorias");
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [accessLogs, setAccessLogs] = useState<AccessLogEntry[]>([]);
+  const [telemetry, setTelemetry] = useState<HardwareTelemetry | null>(null);
+  const [lastTelemetryAt, setLastTelemetryAt] = useState<string | null>(null);
   const [selectedProposalId, setSelectedProposalId] = useState<number | null>(
     null
   );
@@ -55,11 +69,24 @@ export default function MineraHomePage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadProposals();
-  }, [loadProposals]);
+  const loadAccessLogs = useCallback(async () => {
+    try {
+      const data = await mineraService.getAccessLogs();
+      setAccessLogs(data.logs || []);
+    } catch {
+      // ignore
+    }
+  }, []);
 
-  // Sincronización en tiempo real con el Kiosco de Garita
+  const refreshAll = useCallback(async () => {
+    await Promise.all([loadProposals(), loadAccessLogs()]);
+  }, [loadProposals, loadAccessLogs]);
+
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  // Sincronización en tiempo real con el Kiosco de Garita y Telemetría Arduino
   useEffect(() => {
     let ws: WebSocket | null = null;
     try {
@@ -67,6 +94,25 @@ export default function MineraHomePage() {
       ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
+
+          if (
+            payload.event === "HARDWARE_TELEMETRY" ||
+            payload.type === "TELEMETRY"
+          ) {
+            setTelemetry({
+              type: payload.type,
+              event: payload.event,
+              distancia_cm: Number(payload.distancia_cm ?? 0),
+              presencia: Boolean(payload.presencia),
+              temperatura_c: Number(payload.temperatura_c ?? 0),
+              humedad_pct: Number(payload.humedad_pct ?? 0),
+              simulated: Boolean(payload.simulated),
+              timestamp: payload.timestamp,
+            });
+            setLastTelemetryAt(new Date().toLocaleTimeString("es-PE"));
+            return;
+          }
+
           if (
             (payload.type === "EPP_VERIFICATION" ||
               payload.phase === "FASE_2_EPP") &&
@@ -84,6 +130,19 @@ export default function MineraHomePage() {
               text: `Alerta desde Garita: El operario ${payload.worker_name} (DNI ${dni}) incumplió con sus EPPs en cámara${missingDetail}. Se marcó automáticamente 'No lleva sus EPPs'.`,
             });
             loadProposals();
+            loadAccessLogs();
+          } else if (
+            payload.event === "GATE_UPDATE" ||
+            payload.event === "QR_AUTHORIZED" ||
+            payload.event === "OFFLINE_SYNC_COMPLETED" ||
+            payload.type === "EPP_VERIFICATION" ||
+            payload.type === "SYNC_BATCH" ||
+            payload.phase
+          ) {
+            loadAccessLogs();
+            if (payload.event === "OFFLINE_SYNC_COMPLETED") {
+              loadProposals();
+            }
           }
         } catch {
           // ignore
@@ -95,7 +154,7 @@ export default function MineraHomePage() {
     return () => {
       if (ws) ws.close();
     };
-  }, [loadProposals]);
+  }, [loadProposals, loadAccessLogs]);
 
   const handleCreateProposal = async (payload: {
     title: string;
@@ -170,7 +229,7 @@ export default function MineraHomePage() {
         <>
           <button
             type="button"
-            onClick={loadProposals}
+            onClick={refreshAll}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4 text-slate-500" />
@@ -213,9 +272,129 @@ export default function MineraHomePage() {
         </div>
       )}
 
+      {/* Tarjeta superior de Telemetría en Vivo de Garita (Arduino IoT) */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+              <Radio className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Telemetría en Vivo de Garita (Arduino IoT)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Sensores DHT11 (Pin 12) y ultrasónico HC-SR04 (Pines 10/11) vía WebSocket
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {telemetry ? (
+              <Badge variant={telemetry.simulated ? "amber" : "emerald"}>
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    telemetry.simulated
+                      ? "bg-amber-500 animate-pulse"
+                      : "bg-emerald-500 animate-pulse"
+                  }`}
+                />
+                {telemetry.simulated
+                  ? "Arduino Simulado en Vivo"
+                  : "Arduino UNO Conectado"}
+              </Badge>
+            ) : (
+              <Badge variant="slate">Esperando telemetría...</Badge>
+            )}
+            {lastTelemetryAt && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-400">
+                <Clock className="h-3 w-3" />
+                {lastTelemetryAt}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100/80 text-amber-700 shrink-0">
+              <Thermometer className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Temperatura
+              </div>
+              <div className="text-lg font-bold text-slate-900 font-mono">
+                {telemetry ? `${telemetry.temperatura_c.toFixed(1)} °C` : "-- °C"}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100/80 text-blue-700 shrink-0">
+              <Droplets className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Humedad
+              </div>
+              <div className="text-lg font-bold text-slate-900 font-mono">
+                {telemetry ? `${telemetry.humedad_pct.toFixed(1)} %` : "-- %"}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100/80 text-indigo-700 shrink-0">
+              <Ruler className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Distancia (HC-SR04)
+              </div>
+              <div className="text-lg font-bold text-slate-900 font-mono">
+                {telemetry ? `${telemetry.distancia_cm.toFixed(1)} cm` : "-- cm"}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-xl shrink-0 ${
+                telemetry?.presencia
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-slate-200/70 text-slate-600"
+              }`}
+            >
+              <UserCheck className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Presencia en Cabina
+              </div>
+              <div className="mt-0.5">
+                {telemetry ? (
+                  telemetry.presencia ? (
+                    <Badge variant="emerald">Operario en Cabina</Badge>
+                  ) : (
+                    <Badge variant="slate">Cabina Libre</Badge>
+                  )
+                ) : (
+                  <span className="text-sm font-semibold text-slate-400">
+                    Sin señal
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <Tabs
         activeTab={activeTab}
-        onChange={(id) => setActiveTab(id as "convocatorias" | "evaluacion")}
+        onChange={(id) =>
+          setActiveTab(id as "convocatorias" | "evaluacion" | "bitacora")
+        }
         tabs={[
           {
             id: "convocatorias",
@@ -229,6 +408,12 @@ export default function MineraHomePage() {
             count: acceptedCount,
             icon: <ClipboardCheck className="h-4 w-4" />,
           },
+          {
+            id: "bitacora",
+            label: "Tab 3: Bitácora de Garita (IoT)",
+            count: accessLogs.length,
+            icon: <Radio className="h-4 w-4" />,
+          },
         ]}
       />
 
@@ -241,7 +426,7 @@ export default function MineraHomePage() {
             setActiveTab("evaluacion");
           }}
         />
-      ) : (
+      ) : activeTab === "evaluacion" ? (
         <WorkerEvaluationTable
           proposals={proposals}
           selectedProposalId={selectedProposalId}
@@ -249,6 +434,117 @@ export default function MineraHomePage() {
           onSaveEvaluations={handleSaveEvaluations}
           onDownloadAndSendReport={handleDownloadAndSendReport}
         />
+      ) : (
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 bg-slate-50/60 px-6 py-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Historial de Inspecciones y Control de Acceso en Garita
+              </h3>
+              <p className="text-xs text-slate-500">
+                Sincronizado en tiempo real con el escáner móvil, visión artificial y módulo Arduino IoT.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadAccessLogs}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 self-start sm:self-auto"
+            >
+              <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
+              <span>Refrescar Bitácora</span>
+            </button>
+          </div>
+
+          {accessLogs.length === 0 ? (
+            <div className="p-12 text-center text-sm text-slate-500">
+              Aún no hay eventos registrados en la bitácora de garita.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold">
+                    <th className="py-3.5 px-4">Fecha / Hora</th>
+                    <th className="py-3.5 px-4">Trabajador / DNI</th>
+                    <th className="py-3.5 px-4">Fase</th>
+                    <th className="py-3.5 px-4">Estado</th>
+                    <th className="py-3.5 px-4">EPPs Detectados</th>
+                    <th className="py-3.5 px-4">EPPs Faltantes / Motivo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {accessLogs.map((log) => (
+                    <tr
+                      key={log.id}
+                      className={
+                        log.status === "ROJO"
+                          ? "bg-red-50/30 hover:bg-red-50/50"
+                          : "hover:bg-slate-50/70"
+                      }
+                    >
+                      <td className="py-3 px-4 font-mono text-slate-600 whitespace-nowrap">
+                        {log.timestamp || "—"}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-900">
+                          {log.worker_name}
+                        </div>
+                        <div className="font-mono text-[11px] text-slate-500">
+                          DNI {log.worker_dni}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge variant="slate">{log.phase}</Badge>
+                      </td>
+                      <td className="py-3 px-4">
+                        {log.status === "VERDE" ? (
+                          <Badge variant="emerald">
+                            <ShieldCheck className="h-3.5 w-3.5" />
+                            VERDE
+                          </Badge>
+                        ) : log.status === "ROJO" ? (
+                          <Badge variant="red">
+                            <ShieldAlert className="h-3.5 w-3.5" />
+                            ROJO
+                          </Badge>
+                        ) : (
+                          <Badge variant="blue">{log.status}</Badge>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {log.detected_epps && log.detected_epps.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {log.detected_epps.map((epp, idx) => (
+                              <Badge key={idx} variant="emerald">
+                                {epp}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">Ninguno</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 max-w-xs">
+                        {log.missing_epps && log.missing_epps.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-1">
+                            {log.missing_epps.map((epp, idx) => (
+                              <Badge key={idx} variant="red">
+                                {epp}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-slate-600">
+                          {log.message}
+                        </p>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       <CreateProposalModal

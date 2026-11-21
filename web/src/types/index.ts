@@ -114,3 +114,33 @@ export interface AuthResponse {
   token_type: string;
   user: AuthUser;
 }
+
+export interface HardwareTelemetry {
+  type?: string;
+  event?: string;
+  distancia_cm: number;
+  presencia: boolean;
+  temperatura_c: number;
+  humedad_pct: number;
+  simulated?: boolean;
+  timestamp?: string;
+}
+
+export interface AccessLogEntry {
+  id: number;
+  worker_id: number | null;
+  worker_name: string;
+  worker_dni: string;
+  phase: string;
+  status: "VERDE" | "ROJO" | "QR_OK" | string;
+  detected_epps: string[];
+  missing_epps: string[];
+  message: string;
+  timestamp: string;
+}
+
+export interface VisionLogsResponse {
+  last_scanned_worker: Worker | null;
+  last_gate_event: Record<string, unknown> | null;
+  logs: AccessLogEntry[];
+}

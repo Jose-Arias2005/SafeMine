@@ -8,7 +8,7 @@ import {
   SyncOfflineLogsResponse,
   Worker,
 } from "../types";
-import { apiFetch } from "./apiClient";
+import { apiFetch, apiUploadMultipart } from "./apiClient";
 
 export const kioscoService = {
   async verifyQr(qrData: string): Promise<{
@@ -34,22 +34,27 @@ export const kioscoService = {
     formData.append("worker_id", String(params.workerId));
 
     if (params.simulateMode) {
-      formData.append("simulate_mode", params.simulateMode);
+      formData.append("simulate_mode", String(params.simulateMode));
     }
 
     if (params.frameAsset) {
+      const fileUri = params.frameAsset.uri
+        ? String(params.frameAsset.uri).trim()
+        : "";
+      if (!fileUri) {
+        throw new Error(
+          "La fotografía capturada para verificación de EPPs no contiene una ruta (URI) válida. Intenta capturar nuevamente."
+        );
+      }
       const nativeFrame = {
-        uri: params.frameAsset.uri,
-        name: params.frameAsset.name,
-        type: params.frameAsset.mimeType,
-      } as unknown as Blob;
+        uri: String(fileUri),
+        name: String(params.frameAsset.name || "documento.jpg"),
+        type: String(params.frameAsset.mimeType || "image/jpeg"),
+      } as any;
       formData.append("frame", nativeFrame);
     }
 
-    return apiFetch("/api/vision/verify-epp", {
-      method: "POST",
-      body: formData,
-    });
+    return apiUploadMultipart("/api/vision/verify-epp", formData);
   },
 
   async getLogs(): Promise<{

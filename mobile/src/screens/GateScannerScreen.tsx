@@ -115,7 +115,7 @@ export function GateScannerScreen() {
           setPendingCount(count);
           setCachedRoster(roster);
         }
-      } catch {}
+      } catch { }
     })();
     return () => {
       active = false;
@@ -248,7 +248,7 @@ export function GateScannerScreen() {
                 (dni && w.dni === String(dni))
             );
           }
-        } catch {}
+        } catch { }
 
         if (!matched) {
           const clean = rawPayload.trim();
@@ -370,7 +370,7 @@ export function GateScannerScreen() {
       Alert.alert(
         "Fallo de conexión o QR no reconocido",
         (err instanceof Error ? err.message : "No se pudo verificar el código QR.") +
-          "\n\n¿Deseas activar el Modo Garita Offline para operar con el padrón local?",
+        "\n\n¿Deseas activar el Modo Garita Offline para operar con el padrón local?",
         [
           { text: "Cancelar", style: "cancel" },
           { text: "Activar Modo Offline", onPress: handleToggleOfflineMode },
@@ -453,19 +453,20 @@ export function GateScannerScreen() {
     // Modo Online estándar con AWS Rekognition
     try {
       let frameAsset = null;
-      if (cameraRef.current) {
+      if (!simulateMode && cameraRef.current) {
         try {
           const photo = await cameraRef.current.takePictureAsync({
             quality: 0.72,
           });
-          if (photo?.uri) {
+          const photoUri = photo?.uri ? String(photo.uri).trim() : "";
+          if (photoUri) {
             frameAsset = {
-              uri: photo.uri,
+              uri: photoUri,
               name: `garita_epp_${activeWorker.dni}_${Date.now()}.jpg`,
               mimeType: "image/jpeg",
             };
           }
-        } catch {}
+        } catch { }
       }
 
       const verification = await kioscoService.verifyEpp({

@@ -13,6 +13,7 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
         self.last_scanned_worker: Optional[Dict[str, Any]] = None
         self.last_gate_event: Optional[Dict[str, Any]] = None
+        self.last_telemetry: Optional[Dict[str, Any]] = None
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -23,7 +24,13 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, payload: Dict[str, Any]):
-        self.last_gate_event = payload
+        if (
+            payload.get("event") == "HARDWARE_TELEMETRY"
+            or payload.get("type") == "TELEMETRY"
+        ):
+            self.last_telemetry = payload
+        else:
+            self.last_gate_event = payload
         message = json.dumps(payload, ensure_ascii=False)
         stale_connections: List[WebSocket] = []
         for connection in self.active_connections:

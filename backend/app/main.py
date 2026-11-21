@@ -1,3 +1,4 @@
+import json
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -78,8 +79,20 @@ async def websocket_kiosco_endpoint(websocket: WebSocket):
     try:
         if ws_manager.last_gate_event:
             await websocket.send_json(ws_manager.last_gate_event)
+        if ws_manager.last_telemetry:
+            await websocket.send_json(ws_manager.last_telemetry)
         while True:
-            _ = await websocket.receive_text()
+            raw_text = await websocket.receive_text()
+            try:
+                data = json.loads(raw_text)
+            except Exception:
+                continue
+            if isinstance(data, dict) and (
+                data.get("type") == "TELEMETRY"
+                or data.get("event") == "HARDWARE_TELEMETRY"
+            ):
+                data["event"] = "HARDWARE_TELEMETRY"
+                await ws_manager.broadcast(data)
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
     except Exception:

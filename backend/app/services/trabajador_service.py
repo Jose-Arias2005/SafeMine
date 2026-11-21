@@ -195,9 +195,14 @@ class TrabajadorService:
         worker.medical_cert_filename = filename
         worker.medical_cert_url = storage_url
 
+        detected_dni = (result.worker_dni or "").strip()
+        expected_dni = (worker.dni or "").strip()
+        dni_matches = (not detected_dni) or (detected_dni == expected_dni)
+
         is_valid = (
             result.is_medical_certificate is True
             and result.aptitude_result == "APTO"
+            and dni_matches
         )
         if is_valid:
             worker.medical_cert_status = "VALIDADA_POR_IA"
@@ -208,10 +213,19 @@ class TrabajadorService:
         else:
             worker.medical_cert_status = "RECHAZADA"
             worker.is_authorized = False
-            worker.medical_ai_feedback = (
-                result.rejection_reason
-                or "Documento no válido o dictamen médico no apto."
-            )
+            if not dni_matches:
+                mismatch_msg = (
+                    f"El DNI detectado en el certificado médico ({detected_dni}) "
+                    f"no coincide con el DNI del operario ({expected_dni})."
+                )
+                worker.medical_ai_feedback = mismatch_msg
+                if not result.rejection_reason:
+                    result.rejection_reason = mismatch_msg
+            else:
+                worker.medical_ai_feedback = (
+                    result.rejection_reason
+                    or "Documento no válido o dictamen médico no apto."
+                )
 
         db.commit()
         db.refresh(worker)

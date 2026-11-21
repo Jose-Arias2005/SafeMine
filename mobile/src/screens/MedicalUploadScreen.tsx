@@ -68,15 +68,21 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.82,
       });
-      if (photo?.uri) {
+      const photoUri = photo?.uri ? String(photo.uri).trim() : "";
+      if (photoUri) {
         const suffix =
           mockBehavior === "mock_rechazado" ? "falso_emo" : "anexo16_emo";
         setSelectedAsset({
-          uri: photo.uri,
+          uri: photoUri,
           name: `${suffix}_${Date.now()}.jpg`,
           mimeType: "image/jpeg",
         });
         setCameraModalVisible(false);
+      } else {
+        Alert.alert(
+          "Error de captura",
+          "No se obtuvo una ruta válida de la fotografía capturada. Intenta nuevamente."
+        );
       }
     } catch (err) {
       Alert.alert(
@@ -96,10 +102,31 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const doc = result.assets[0];
+        const docUri = doc?.uri ? String(doc.uri).trim() : "";
+        if (!docUri) {
+          Alert.alert(
+            "Archivo inválido",
+            "No se pudo leer la ruta (URI) del archivo seleccionado. Intenta elegir otro documento."
+          );
+          return;
+        }
+        const safeName = String(
+          doc.name || `constancia_emo_${Date.now()}.pdf`
+        );
+        const lowerName = safeName.toLowerCase();
+        const inferredMime =
+          doc.mimeType ||
+          (lowerName.endsWith(".png")
+            ? "image/png"
+            : lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")
+            ? "image/jpeg"
+            : lowerName.endsWith(".webp")
+            ? "image/webp"
+            : "application/pdf");
         setSelectedAsset({
-          uri: doc.uri,
-          name: doc.name || `constancia_emo_${Date.now()}.pdf`,
-          mimeType: doc.mimeType || "application/pdf",
+          uri: docUri,
+          name: safeName,
+          mimeType: String(inferredMime),
         });
       }
     } catch (err) {
@@ -113,10 +140,10 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
   };
 
   const handleUploadToGemini = async () => {
-    if (!selectedAsset) {
+    if (!selectedAsset || !String(selectedAsset.uri || "").trim()) {
       Alert.alert(
         "Documento requerido",
-        "Captura una fotografía con la cámara o selecciona un PDF/imagen de tu certificado EMO."
+        "Captura una fotografía con la cámara o selecciona un PDF/imagen válido de tu certificado EMO."
       );
       return;
     }

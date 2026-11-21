@@ -16,7 +16,7 @@ from app.schemas.kiosco_schema import (
     VerifyQRRequest,
     WorkerRosterItem,
 )
-from app.services.aws_service import verify_epp_with_rekognition
+from app.services.aws_service import analyze_epp_image
 from app.services.minera_service import serialize_worker
 
 router = APIRouter(
@@ -173,17 +173,15 @@ async def verify_worker_epp(
 
     image_bytes = await frame.read() if frame else None
 
-    detected_epps = verify_epp_with_rekognition(
+    detected_epps, missing_epps, is_compliant = analyze_epp_image(
         image_bytes=image_bytes,
         required_epps=required_epps,
         simulate_mode=simulate_mode,
     )
 
-    missing_epps = [epp for epp in required_epps if epp not in detected_epps]
-
     full_name = f"{worker.first_name} {worker.last_name}"
 
-    if len(missing_epps) == 0:
+    if is_compliant:
         status = "VERDE"
         msg = "Acceso Autorizado. EPPs completos."
     else:
@@ -231,17 +229,22 @@ async def verify_worker_epp(
         }
     )
 
+    if simulate_mode is not None:
+        vision_mode = "SIMULATION"
+    elif settings.has_real_aws_keys:
+        vision_mode = "AWS_REKOGNITION_CLOUD"
+    elif settings.has_real_gemini_key and image_bytes:
+        vision_mode = "GEMINI_VISION_CLOUD"
+    else:
+        vision_mode = "SIMULATION"
+
     return {
         "status": status,
-        "all_epp_present": len(missing_epps) == 0,
+        "all_epp_present": is_compliant,
         "required_epps": required_epps,
         "detected_epps": detected_epps,
         "missing_epps": missing_epps,
-        "mode": (
-            "SIMULATION"
-            if simulate_mode is not None or not settings.has_real_aws_keys
-            else "AWS_REKOGNITION_CLOUD"
-        ),
+        "mode": vision_mode,
         "confidence_summary": f"EPPs detectados: {len(detected_epps)}/{len(required_epps)}",
         "message": msg,
         "worker": serialize_worker(worker),

@@ -1,4 +1,9 @@
-import { GeneratedCredential, Proposal, WorkerEvaluationItem } from "@/types";
+import {
+  GeneratedCredential,
+  Proposal,
+  VisionLogsResponse,
+  WorkerEvaluationItem,
+} from "@/types";
 import { apiFetch } from "./apiClient";
 
 export const mineraService = {
@@ -53,5 +58,9 @@ export const mineraService = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ report_summary: reportSummary }),
     });
+  },
+
+  async getAccessLogs(): Promise<VisionLogsResponse> {
+    return apiFetch<VisionLogsResponse>("/api/vision/logs");
   },
 };

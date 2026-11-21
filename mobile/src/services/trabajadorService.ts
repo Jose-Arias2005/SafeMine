@@ -5,7 +5,7 @@ import {
   ProposalSummary,
   Worker,
 } from "../types";
-import { apiFetch } from "./apiClient";
+import { apiFetch, apiUploadMultipart } from "./apiClient";
 
 export const trabajadorService = {
   async getExamQuestions(): Promise<{
@@ -61,20 +61,27 @@ export const trabajadorService = {
     };
     worker: Worker;
   }> {
+    const fileUri = asset?.uri ? String(asset.uri).trim() : "";
+    if (!fileUri) {
+      throw new Error(
+        "El certificado médico seleccionado no contiene una ruta (URI) válida. Vuelve a tomar la foto o elegir el archivo."
+      );
+    }
+
     const formData = new FormData();
     const nativeFile = {
-      uri: asset.uri,
-      name: asset.name,
-      type: asset.mimeType,
-    } as unknown as Blob;
+      uri: String(fileUri),
+      name: String(asset.name || "documento.jpg"),
+      type: String(asset.mimeType || "image/jpeg"),
+    } as any;
 
     formData.append("file", nativeFile);
-    formData.append("mock_behavior", mockBehavior);
+    formData.append("mock_behavior", String(mockBehavior || "auto"));
 
-    return apiFetch(`/api/trabajador/${workerId}/medical-cert`, {
-      method: "POST",
-      body: formData,
-    });
+    return apiUploadMultipart(
+      `/api/trabajador/${workerId}/medical-cert`,
+      formData
+    );
   },
 };
 
