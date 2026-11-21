@@ -2,16 +2,15 @@
 
 import React, { useState } from "react";
 import {
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  ClipboardCheck,
-  KeyRound,
-  Users,
   Calendar,
+  CheckCircle2,
+  ClipboardCheck,
+  Users,
+  Building2,
 } from "lucide-react";
 import { Proposal } from "@/types";
 import { Badge } from "@/components/ui/Badge";
+import { CopyButton } from "@/components/ui/CopyButton";
 
 interface ProposalsListProps {
   proposals: Proposal[];
@@ -24,9 +23,6 @@ export default function ProposalsList({
   onAcceptProposal,
   onGoToEvaluation,
 }: ProposalsListProps) {
-  const [expandedId, setExpandedId] = useState<number | null>(
-    proposals.find((p) => p.status === "POSTULADA")?.id ?? null
-  );
   const [acceptingId, setAcceptingId] = useState<number | null>(null);
 
   const handleAccept = async (id: number) => {
@@ -40,73 +36,79 @@ export default function ProposalsList({
 
   if (proposals.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+      <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
         No hay convocatorias registradas actualmente.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {proposals.map((prop) => {
-        const isExpanded = expandedId === prop.id;
+        const defaultExpanded = prop.status === "POSTULADA";
+
         return (
-          <div
+          <article
             key={prop.id}
-            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs transition-all"
+            className="sm-card rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
           >
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2">
+            <div className="sm-card-header">
+              <div className="min-w-0 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-500">
                   {prop.status === "POSTULADA" && (
-                    <Badge variant="amber">
-                      Postulada por Proveedor · Lista para Aceptar
-                    </Badge>
+                    <Badge variant="amber">Postulada</Badge>
                   )}
                   {prop.status === "ACEPTADA" && (
-                    <Badge variant="emerald">
-                      Propuesta Aceptada · {prop.workers.length} Cuentas Creadas
-                    </Badge>
+                    <Badge variant="emerald">Aceptada</Badge>
                   )}
                   {prop.status === "ABIERTA" && (
-                    <Badge variant="slate">Convocatoria Abierta</Badge>
+                    <Badge variant="slate">Abierta</Badge>
                   )}
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                    <Calendar className="h-3.5 w-3.5" /> Inicio: {prop.start_date}
+
+                  <span className="inline-flex items-center gap-1 tabular-nums">
+                    <Calendar className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                    Inicio: {prop.start_date}
                   </span>
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                    <Users className="h-3.5 w-3.5" /> Cupo: {prop.quota} personas
+
+                  <span className="inline-flex items-center gap-1 tabular-nums">
+                    <Users className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                    Cupo: {prop.quota}
                   </span>
+
+                  {prop.provider_company_name && (
+                    <span className="inline-flex items-center gap-1 text-slate-700">
+                      <Building2
+                        className="h-3.5 w-3.5 text-slate-400"
+                        aria-hidden="true"
+                      />
+                      <strong className="font-medium">
+                        {prop.provider_company_name}
+                      </strong>
+                    </span>
+                  )}
                 </div>
 
-                <h3 className="text-base font-bold text-slate-900">
+                <h2 className="text-base font-semibold text-slate-900">
                   {prop.title}
-                </h3>
-                <p className="text-sm text-slate-600 max-w-3xl">
+                </h2>
+                <p className="max-w-3xl text-sm text-slate-600">
                   {prop.description}
                 </p>
-
-                {prop.provider_company_name && (
-                  <div className="text-xs font-medium text-blue-600 pt-1">
-                    Proveedor Postulante: <strong>{prop.provider_company_name}</strong>{" "}
-                    ({prop.workers.length} trabajadores propuestos)
-                  </div>
-                )}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 {prop.status === "POSTULADA" && (
                   <button
                     type="button"
                     disabled={acceptingId === prop.id}
                     onClick={() => handleAccept(prop.id)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                   >
-                    <CheckCircle2 className="h-4 w-4" />
+                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                     <span>
                       {acceptingId === prop.id
-                        ? "Creando cuentas..."
-                        : `Aceptar Propuesta y Generar ${prop.workers.length} Cuentas`}
+                        ? "Aceptando..."
+                        : `Aceptar y crear ${prop.workers.length} cuentas`}
                     </span>
                   </button>
                 )}
@@ -115,99 +117,145 @@ export default function ProposalsList({
                   <button
                     type="button"
                     onClick={() => onGoToEvaluation(prop.id)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition-colors"
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                   >
-                    <ClipboardCheck className="h-4 w-4" />
-                    <span>Evaluar Personal y Emitir Reporte</span>
-                  </button>
-                )}
-
-                {prop.workers.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedId(isExpanded ? null : prop.id)
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                  >
-                    <span>Ver Nómina ({prop.workers.length})</span>
-                    {isExpanded ? (
-                      <ChevronUp className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    )}
+                    <ClipboardCheck
+                      className="h-4 w-4 text-blue-600"
+                      aria-hidden="true"
+                    />
+                    <span>Evaluar personal</span>
                   </button>
                 )}
               </div>
             </div>
 
-            {isExpanded && prop.workers.length > 0 && (
-              <div className="mt-5 border-t border-slate-100 pt-4">
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500 border-b border-slate-200">
-                        <th className="py-2.5 px-3">#</th>
-                        <th className="py-2.5 px-3">Trabajador</th>
-                        <th className="py-2.5 px-3">DNI</th>
-                        <th className="py-2.5 px-3">Cargo</th>
-                        <th className="py-2.5 px-3">Usuario</th>
-                        <th className="py-2.5 px-3">Contraseña Temporal</th>
-                        <th className="py-2.5 px-3">Estado Acreditación</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {prop.workers.map((w, idx) => {
-                        const uname = w.generated_username || (prop.status === "ACEPTADA" ? `op.${w.dni}` : null);
-                        const pword = w.generated_password || (prop.status === "ACEPTADA" ? `mina${w.dni.slice(-4)}` : null);
-                        return (
-                          <tr key={w.id} className="hover:bg-slate-50/70">
-                            <td className="py-2.5 px-3 text-slate-400">
-                              {idx + 1}
-                            </td>
-                            <td className="py-2.5 px-3 font-semibold text-slate-900">
-                              {w.full_name}
-                            </td>
-                            <td className="py-2.5 px-3 font-mono text-slate-600">
-                              {w.dni}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-600">
-                              {w.position}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              {uname ? (
-                                <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                                  {uname}
+            {prop.workers.length > 0 && (
+              <details
+                open={defaultExpanded}
+                className="sm-details mt-4 border-t border-slate-100 pt-3.5"
+              >
+                <summary className="rounded-md py-1 text-xs font-medium text-slate-700 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                  <span>
+                    Nómina propuesta ({prop.workers.length} operarios
+                    {prop.status === "ACEPTADA"
+                      ? ` · ${prop.authorized_count}/${prop.workers.length} autorizados`
+                      : ""}
+                    )
+                  </span>
+                </summary>
+
+                <div className="pt-3">
+                  <div
+                    tabIndex={0}
+                    role="region"
+                    aria-label={`Nómina de ${prop.title}`}
+                    className="sm-table-wrap sm-scroll rounded-lg border border-slate-200"
+                  >
+                    <table className="sm-table-responsive text-left text-xs">
+                      <caption className="visually-hidden">
+                        Nómina de trabajadores para {prop.title}
+                      </caption>
+                      <thead>
+                        <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                            Trabajador
+                          </th>
+                          <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                            DNI
+                          </th>
+                          <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                            Cargo
+                          </th>
+                          <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                            Acceso temporal
+                          </th>
+                          <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                            Acreditación
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {prop.workers.map((w, idx) => {
+                          const uname =
+                            w.generated_username ||
+                            (prop.status === "ACEPTADA" ? `op.${w.dni}` : null);
+                          const pword =
+                            w.generated_password ||
+                            (prop.status === "ACEPTADA"
+                              ? `mina${w.dni.slice(-4)}`
+                              : null);
+
+                          return (
+                            <tr
+                              key={w.id}
+                              className="sm-copyable bg-white hover:bg-slate-50/70"
+                            >
+                              <th
+                                scope="row"
+                                className="bg-white px-3 py-2.5 font-medium text-slate-900"
+                              >
+                                <span className="mr-2 font-mono text-[11px] text-slate-400 tabular-nums">
+                                  {idx + 1}.
                                 </span>
-                              ) : (
-                                <span className="text-slate-400 italic">Al aceptar</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              {pword ? (
-                                <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                  {pword}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 italic">Al aceptar</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              {w.is_authorized ? (
-                                <Badge variant="emerald">Autorizado QR</Badge>
-                              ) : (
-                                <Badge variant="amber">En Acreditación</Badge>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                                {w.full_name}
+                              </th>
+                              <td
+                                data-label="DNI"
+                                className="px-3 py-2.5 font-mono text-slate-600 tabular-nums"
+                              >
+                                {w.dni}
+                              </td>
+                              <td
+                                data-label="Cargo"
+                                className="px-3 py-2.5 text-slate-600"
+                              >
+                                {w.position}
+                              </td>
+                              <td data-label="Acceso temporal" className="px-3 py-2.5">
+                                {uname && pword ? (
+                                  <div className="inline-flex items-center gap-2 font-mono text-[11px] text-slate-800">
+                                    <span>
+                                      {uname}{" "}
+                                      <span className="text-slate-400">/</span>{" "}
+                                      {pword}
+                                    </span>
+                                    <CopyButton
+                                      value={`${uname} / ${pword}`}
+                                      label={`Copiar credenciales de ${w.full_name}`}
+                                      revealOnHover
+                                    />
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400">
+                                    Se genera al aceptar
+                                  </span>
+                                )}
+                              </td>
+                              <td data-label="Acreditación" className="px-3 py-2.5">
+                                {w.is_authorized ? (
+                                  <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                                    <span
+                                      className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+                                      aria-hidden="true"
+                                    />
+                                    Autorizado QR
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-500">
+                                    En acreditación
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              </details>
             )}
-          </div>
+          </article>
         );
       })}
     </div>

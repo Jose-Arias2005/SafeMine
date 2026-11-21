@@ -4,25 +4,435 @@
 
 :root {
   color-scheme: light;
+  --surface-canvas: #f8fafc;
+  --surface-card: #ffffff;
+  --border-subtle: #e2e8f0;
+  --accent: #2563eb;
+  /* Contrast ratio of #64748b against #f1f5f9 is ~4.35:1 (>= 3:1 WCAG 1.4.11) */
+  --scrollbar-thumb: #64748b;
+  --scrollbar-track: #f1f5f9;
 }
 
+html,
 body {
-  background-color: #f8fafc;
+  background-color: var(--surface-canvas);
   color: #0f172a;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Standard scrollbars for scrollable containers */
+.sm-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
-::-webkit-scrollbar-track {
-  background: #f1f5f9;
+
+/* Legacy WebKit fallback scoped strictly where standard scrollbar-color is unsupported */
+@supports not (scrollbar-color: auto) {
+  html,
+  body,
+  .sm-scroll {
+    scrollbar-width: auto;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
 }
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
+
+/* Accessible visually-hidden utility (opt-out on focus-within / active for skip links) */
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+
+/* Native <dialog> modal styles (never set display unconditionally on dialog) */
+dialog.sm-dialog {
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 1rem;
+  background-color: var(--surface-card);
+  color: #0f172a;
+  box-shadow: 0 20px 25px -5px rgb(15 23 42 / 0.1), 0 8px 10px -6px rgb(15 23 42 / 0.08);
+  max-block-size: calc(100dvh - 2rem);
+  inline-size: calc(100% - 2rem);
+  overflow: hidden;
+}
+
+dialog.sm-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.sm-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.sm-dialog::backdrop {
+  background-color: rgb(15 23 42 / 0.42);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Viewport-aware header popovers with progressive enhancement */
+.sm-popover[popover] {
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  background-color: var(--surface-card);
+  color: #0f172a;
+  box-shadow: 0 10px 25px -5px rgb(15 23 42 / 0.12), 0 4px 10px -4px rgb(15 23 42 / 0.06);
+  max-inline-size: min(20rem, calc(100vw - 1.5rem));
+}
+
+/* Support non-popover fallback state cleanly */
+.sm-popover[popover]:not(:popover-open):not([data-popover-open="true"]) {
+  display: none;
+}
+
+.sm-popover[popover]:is(:popover-open, [data-popover-open="true"]) {
+  display: block;
+}
+
+@supports (position-area: block-end) {
+  .sm-popover[popover] {
+    inset: auto;
+    margin: 0.5rem 0 0 0;
+    position-area: block-end span-inline-start;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+}
+
+@supports not (position-area: block-end) {
+  .sm-popover[popover] {
+    position: fixed;
+    inset: 3.75rem 1rem auto auto;
+    margin: 0;
+  }
+}
+
+/* Single-row accessible tabs */
+.sm-tablist {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: inline proximity;
+  scrollbar-width: none;
+}
+
+.sm-tablist::-webkit-scrollbar {
+  display: none;
+}
+
+.sm-tab {
+  position: relative;
+  flex: none;
+  scroll-snap-align: start;
+}
+
+.sm-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-block-end: 2px solid var(--accent);
+}
+
+/* Accessible copy button & status bubble */
+.sm-copy-btn {
+  min-inline-size: 28px;
+  min-block-size: 28px;
+}
+
+.sm-copy-tip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.sm-copy-tip[data-visible="true"] {
+  opacity: 1;
+}
+
+/* Repeated copyable items: visible in flow on touch, revealed on hover/focus on pointer devices */
+@media (hover: hover) {
+  .sm-copyable .sm-copy-reveal {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .sm-copyable:hover .sm-copy-reveal,
+  .sm-copyable:focus-within .sm-copy-reveal,
+  .sm-copy-reveal:focus-visible,
+  .sm-copy-reveal[data-copied],
+  .sm-copy-reveal[data-failed] {
+    opacity: 1;
+  }
+}
+
+/* Top-layer manual toast popover */
+.sm-toast[popover] {
+  position: fixed;
+  inset: auto 1rem 1rem auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  max-inline-size: min(26rem, calc(100vw - 2rem));
+  overflow: visible;
+}
+
+.sm-toast[popover]:not(:popover-open):not([data-popover-open="true"]) {
+  display: none;
+}
+
+.sm-toast[popover]:is(:popover-open, [data-popover-open="true"]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sm-toast[popover] {
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.18s ease, transform 0.18s ease, display 0.18s ease, overlay 0.18s ease;
+    transition-behavior: allow-discrete;
+  }
+
+  .sm-toast[popover]:is(:popover-open, [data-popover-open="true"]) {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @starting-style {
+    .sm-toast[popover]:is(:popover-open, [data-popover-open="true"]) {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+}
+
+/* Containment helper for heavy lists/tables */
+.sm-contain-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
+@supports not (content-visibility: auto) {
+  .sm-contain-section {
+    contain: layout style paint;
+  }
+}
+
+/* Container-aware card header */
+.sm-card {
+  container-type: inline-size;
+}
+
+.sm-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+@container (width >= 560px) {
+  .sm-card-header {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+}
+
+/* Native radio choice cards (no border-width/padding shifts on selection) */
+.sm-choice-card {
+  border: 2px solid var(--border-subtle);
+  background-color: var(--surface-card);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.sm-choice-card:hover {
+  border-color: #cbd5e1;
+}
+
+.sm-choice-card:has(> :checked) {
+  border-color: var(--accent);
+  background-color: #eff6ff;
+}
+
+.sm-choice-card:has(> :focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Native accessible disclosure / accordion (<details> + <summary>) */
+details.sm-details > summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+details.sm-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.sm-details > summary::before {
+  content: "";
+  inline-size: 1rem;
+  block-size: 1rem;
+  flex-shrink: 0;
+  background-color: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat center / contain;
+  rotate: -90deg;
+}
+
+details.sm-details[open] > summary::before {
+  rotate: 0deg;
+}
+
+details.sm-details::details-content {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  contain: layout;
+}
+
+details.sm-details:not([open])::details-content {
+  block-size: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  details.sm-details > summary::before {
+    transition: rotate 0.2s ease;
+  }
+
+  details.sm-details::details-content {
+    transition: block-size, content-visibility, display;
+    transition-duration: 0.24s;
+    transition-timing-function: ease-in-out;
+    transition-behavior: allow-discrete;
+  }
+}
+
+/* Responsive data tables with sticky headers and @container stacked mode */
+.sm-table-wrap {
+  overflow: auto;
+  max-inline-size: 100%;
+  container-type: inline-size;
+}
+
+.sm-table-wrap:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.sm-table-responsive {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.sm-table-responsive thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+
+.sm-table-responsive tbody th[scope="row"] {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+}
+
+@container (width < 600px) {
+  .sm-table-responsive,
+  .sm-table-responsive thead,
+  .sm-table-responsive tbody,
+  .sm-table-responsive tr,
+  .sm-table-responsive th,
+  .sm-table-responsive td {
+    display: block;
+  }
+
+  .sm-table-responsive thead {
+    display: none;
+  }
+
+  .sm-table-responsive tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .sm-table-responsive tbody tr {
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background-color: var(--surface-card);
+  }
+
+  .sm-table-responsive tbody th[scope="row"] {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    border-bottom: 1px solid var(--border-subtle);
+    background-color: #f8fafc;
+    padding: 0.75rem 1rem;
+    text-align: left;
+  }
+
+  .sm-table-responsive tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.625rem 1rem;
+    border-bottom: 1px solid #f1f5f9;
+    text-align: right;
+  }
+
+  .sm-table-responsive tbody td:last-child {
+    border-bottom: 0;
+  }
+
+  .sm-table-responsive tbody td[data-label]::before {
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #64748b;
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  .sm-table-responsive tbody td[data-stack="true"] {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: left;
+  }
 }

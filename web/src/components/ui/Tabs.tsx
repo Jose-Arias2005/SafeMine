@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useId, useRef } from "react";
 
 export interface TabItem {
   id: string;
@@ -13,32 +13,93 @@ interface TabsProps {
   tabs: TabItem[];
   activeTab: string;
   onChange: (id: string) => void;
+  ariaLabel?: string;
+  idPrefix?: string;
 }
 
-export function Tabs({ tabs, activeTab, onChange }: TabsProps) {
+export function Tabs({
+  tabs,
+  activeTab,
+  onChange,
+  ariaLabel = "Secciones",
+  idPrefix,
+}: TabsProps) {
+  const autoId = useId();
+  const prefix = idPrefix ?? autoId;
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const selectAndFocus = (index: number) => {
+    const nextTab = tabs[index];
+    if (!nextTab) return;
+    onChange(nextTab.id);
+    const button = tabRefs.current[index];
+    if (button) {
+      button.focus();
+      button.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (tabs.length === 0) return;
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      selectAndFocus((index + 1) % tabs.length);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      selectAndFocus((index - 1 + tabs.length) % tabs.length);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      selectAndFocus(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      selectAndFocus(tabs.length - 1);
+    }
+  };
+
   return (
     <div className="border-b border-slate-200">
-      <nav className="-mb-px flex flex-wrap gap-6" aria-label="Tabs">
-        {tabs.map((tab) => {
+      <div role="tablist" aria-label={ariaLabel} className="sm-tablist -mb-px">
+        {tabs.map((tab, index) => {
           const isActive = tab.id === activeTab;
           return (
             <button
               key={tab.id}
+              ref={(el) => {
+                tabRefs.current[index] = el;
+              }}
+              id={`${prefix}-tab-${tab.id}`}
               type="button"
-              onClick={() => onChange(tab.id)}
-              className={`group inline-flex items-center gap-2 border-b-2 py-3.5 px-1 text-sm font-medium transition-colors ${
+              role="tab"
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => {
+                onChange(tab.id);
+                tabRefs.current[index]?.scrollIntoView({
+                  block: "nearest",
+                  inline: "nearest",
+                });
+              }}
+              onKeyDown={(e) => handleKeyDown(e, index)}
+              className={`sm-tab inline-flex items-center gap-2 whitespace-nowrap px-3.5 py-3 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-600 ${
                 isActive
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
+                  ? "text-slate-900"
+                  : "text-slate-500 hover:text-slate-800"
               }`}
             >
-              {tab.icon}
+              {tab.icon && (
+                <span
+                  aria-hidden="true"
+                  className={isActive ? "text-blue-600" : "text-slate-400"}
+                >
+                  {tab.icon}
+                </span>
+              )}
               <span>{tab.label}</span>
               {typeof tab.count === "number" && (
                 <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${
                     isActive
-                      ? "bg-blue-50 text-blue-600"
+                      ? "bg-slate-900 text-white"
                       : "bg-slate-100 text-slate-600"
                   }`}
                 >
@@ -48,7 +109,7 @@ export function Tabs({ tabs, activeTab, onChange }: TabsProps) {
             </button>
           );
         })}
-      </nav>
+      </div>
     </div>
   );
 }

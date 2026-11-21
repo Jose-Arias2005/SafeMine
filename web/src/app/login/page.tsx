@@ -3,18 +3,12 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ShieldCheck,
-  Building2,
-  Lock,
-  Mail,
-  User,
-  KeyRound,
-  ArrowRight,
-  Sparkles,
   AlertCircle,
+  ArrowRight,
+  Building2,
   Eye,
   EyeOff,
-  Briefcase,
+  ShieldCheck,
   Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -39,6 +33,7 @@ export default function LoginPage() {
   const [regFullName, setRegFullName] = useState("");
   const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
+  const [showRegPassword, setShowRegPassword] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
 
   useEffect(() => {
@@ -63,7 +58,7 @@ export default function LoginPage() {
         clearStoredSession();
         logout();
         setErrorMsg(
-          "Esta plataforma Web Organizacional es exclusiva para Minera y Proveedores. Los operarios y garita ingresan desde SafeMine Mobile."
+          "Esta plataforma web es exclusiva para Minera y Proveedores. Los operarios y personal de garita ingresan desde SafeMine Mobile."
         );
         return;
       }
@@ -77,7 +72,7 @@ export default function LoginPage() {
       setErrorMsg(
         err instanceof Error
           ? err.message
-          : "Credenciales inválidas. Por favor verifique sus datos."
+          : "Credenciales inválidas. Verifica tus datos."
       );
     } finally {
       setLoginLoading(false);
@@ -117,121 +112,165 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        {/* Logo & Marca */}
-        <div className="flex items-center justify-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-lg shadow-blue-500/20 ring-1 ring-white/20">
-            <ShieldCheck className="h-7 w-7" />
-          </div>
-          <div>
-            <div className="text-2xl font-black tracking-tight text-white">
-              SafeMine <span className="text-blue-500">Web</span>
-            </div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Portal Organizacional · Minera &amp; Contratistas
-            </div>
-          </div>
+    <div className="flex min-h-screen flex-col justify-center bg-slate-50 px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-md">
+        {/* Marca sobria */}
+        <div className="flex items-center justify-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white">
+            <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <span className="text-lg font-semibold tracking-tight text-slate-900">
+            SafeMine <span className="font-normal text-slate-500">Web</span>
+          </span>
         </div>
 
-        <h2 className="mt-5 text-center text-xl font-bold tracking-tight text-white">
-          Acceso Administrativo Corporativo
-        </h2>
-        <p className="mt-1 text-center text-xs text-slate-400">
-          Gestión de convocatorias, postulación de cuadrillas, auditoría SSO y emisión de reportes PDF.
+        <h1 className="mt-5 text-center text-xl font-semibold tracking-tight text-slate-900">
+          Acceso administrativo
+        </h1>
+        <p className="mt-1 text-center text-xs text-slate-500">
+          Portal organizacional para Minera y Empresas Contratistas.
         </p>
-      </div>
 
-      <div className="mt-7 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/90 backdrop-blur-xl p-6 sm:p-8 shadow-2xl ring-1 ring-white/10">
-          {/* Selector de Pestaña */}
-          <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-950/70 border border-slate-800/80 mb-6">
+        {/* Tarjeta principal neutra */}
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+          {/* Selector de modo */}
+          <div
+            role="tablist"
+            aria-label="Opciones de acceso"
+            className="mb-5 grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1"
+          >
             <button
+              id="auth-tab-login"
               type="button"
+              role="tab"
+              aria-selected={activeTab === "login"}
+              tabIndex={activeTab === "login" ? 0 : -1}
               onClick={() => {
                 setActiveTab("login");
                 setErrorMsg(null);
               }}
-              className={`flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all ${
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  setActiveTab("register");
+                  setErrorMsg(null);
+                  document.getElementById("auth-tab-register")?.focus();
+                }
+              }}
+              className={`rounded-lg py-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600 ${
                 activeTab === "login"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <Lock className="h-3.5 w-3.5" />
-              <span>Iniciar Sesión</span>
+              Iniciar sesión
             </button>
             <button
+              id="auth-tab-register"
               type="button"
+              role="tab"
+              aria-selected={activeTab === "register"}
+              tabIndex={activeTab === "register" ? 0 : -1}
               onClick={() => {
                 setActiveTab("register");
                 setErrorMsg(null);
               }}
-              className={`flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all ${
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  setActiveTab("login");
+                  setErrorMsg(null);
+                  document.getElementById("auth-tab-login")?.focus();
+                }
+              }}
+              className={`rounded-lg py-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600 ${
                 activeTab === "register"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <Building2 className="h-3.5 w-3.5" />
-              <span>Registro Proveedor</span>
+              Registro proveedor
             </button>
           </div>
 
-          {/* Banner de error */}
           {errorMsg && (
-            <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
-              <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-              <span>{errorMsg}</span>
+            <div
+              role="alert"
+              className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs text-red-800"
+            >
+              <AlertCircle
+                className="mt-0.5 h-4 w-4 shrink-0 text-red-600"
+                aria-hidden="true"
+              />
+              <span className="leading-relaxed">{errorMsg}</span>
             </div>
           )}
 
+          <div
+            role="tabpanel"
+            aria-labelledby={
+              activeTab === "login" ? "auth-tab-login" : "auth-tab-register"
+            }
+          >
           {activeTab === "login" ? (
             <form onSubmit={handleLoginSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Correo Corporativo o Usuario Administrativo
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="login-username"
+                  className="block text-xs font-medium text-slate-700"
+                >
+                  Correo corporativo o usuario
                 </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                    <User className="h-4 w-4" />
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="ej. minera@safemine.pe o proveedor@contratistasperu.pe"
-                    className="block w-full rounded-xl border border-slate-700 bg-slate-950/80 pl-10 pr-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-colors font-medium"
-                  />
-                </div>
+                <input
+                  id="login-username"
+                  name="username"
+                  type="text"
+                  required
+                  autoComplete="username"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  enterKeyHint="next"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder="minera@safemine.pe"
+                  className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
+                />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="current-password"
+                  className="block text-xs font-medium text-slate-700"
+                >
                   Contraseña
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                    <Lock className="h-4 w-4" />
-                  </div>
                   <input
+                    id="current-password"
+                    name="password"
                     type={showPassword ? "text" : "password"}
                     required
+                    autoComplete="current-password"
+                    enterKeyHint="done"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="block w-full rounded-xl border border-slate-700 bg-slate-950/80 pl-10 pr-10 py-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-colors font-medium"
+                    className="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300"
+                    aria-pressed={showPassword}
+                    aria-label={
+                      showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+                    }
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-lg text-slate-400 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-600"
                   >
                     {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
+                      <EyeOff className="h-4 w-4" aria-hidden="true" />
                     ) : (
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-4 w-4" aria-hidden="true" />
                     )}
                   </button>
                 </div>
@@ -240,182 +279,240 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loginLoading}
-                className="w-full mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-600/25 hover:from-blue-500 hover:to-indigo-500 focus:outline-none disabled:opacity-50 transition-all"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
                 {loginLoading ? (
                   <span>Verificando credenciales...</span>
                 ) : (
                   <>
-                    <span>Ingresar a Consola Corporativa</span>
-                    <ArrowRight className="h-4 w-4" />
+                    <span>Iniciar sesión</span>
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </>
                 )}
               </button>
             </form>
           ) : (
             <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Nombre de la Empresa Contratista
+              <div className="space-y-1">
+                <label
+                  htmlFor="company-name"
+                  className="block text-xs font-medium text-slate-700"
+                >
+                  Empresa contratista
                 </label>
                 <input
+                  id="company-name"
+                  name="company_name"
                   type="text"
                   required
+                  autoComplete="organization"
+                  enterKeyHint="next"
                   value={regCompany}
                   onChange={(e) => setRegCompany(e.target.value)}
-                  placeholder="ej. Mineros del Altiplano S.A.C."
-                  className="block w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  placeholder="Mineros del Altiplano S.A.C."
+                  className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="company-ruc"
+                    className="block text-xs font-medium text-slate-700"
+                  >
                     RUC (11 dígitos)
                   </label>
                   <input
+                    id="company-ruc"
+                    name="ruc"
                     type="text"
+                    inputMode="numeric"
+                    maxLength={11}
+                    spellCheck={false}
+                    enterKeyHint="next"
                     value={regRuc}
                     onChange={(e) => setRegRuc(e.target.value)}
                     placeholder="20601234567"
-                    maxLength={11}
-                    className="block w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none font-mono"
+                    className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 tabular-nums placeholder:text-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Representante / Contacto
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor="full-name"
+                    className="block text-xs font-medium text-slate-700"
+                  >
+                    Representante
                   </label>
                   <input
+                    id="full-name"
+                    name="full_name"
                     type="text"
                     required
+                    autoComplete="name"
+                    enterKeyHint="next"
                     value={regFullName}
                     onChange={(e) => setRegFullName(e.target.value)}
                     placeholder="Ing. Carlos Pérez"
-                    className="block w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                    className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Correo Electrónico Corporativo
+              <div className="space-y-1">
+                <label
+                  htmlFor="signup-email"
+                  className="block text-xs font-medium text-slate-700"
+                >
+                  Correo corporativo
                 </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-                    <Mail className="h-3.5 w-3.5" />
-                  </div>
-                  <input
-                    type="email"
-                    required
-                    value={regEmail}
-                    onChange={(e) => setRegEmail(e.target.value)}
-                    placeholder="contacto@empresa.pe"
-                    className="block w-full rounded-xl border border-slate-700 bg-slate-950/80 pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
+                <input
+                  id="signup-email"
+                  name="email"
+                  type="email"
+                  required
+                  autoComplete="username"
+                  spellCheck={false}
+                  enterKeyHint="next"
+                  value={regEmail}
+                  onChange={(e) => setRegEmail(e.target.value)}
+                  placeholder="contacto@empresa.pe"
+                  className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
+                />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <div className="space-y-1">
+                <label
+                  htmlFor="new-password"
+                  className="block text-xs font-medium text-slate-700"
+                >
                   Contraseña
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-                    <KeyRound className="h-3.5 w-3.5" />
-                  </div>
                   <input
-                    type="password"
+                    id="new-password"
+                    name="password"
+                    type={showRegPassword ? "text" : "password"}
                     required
+                    autoComplete="new-password"
+                    enterKeyHint="done"
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
                     placeholder="Crea una contraseña segura"
-                    className="block w-full rounded-xl border border-slate-700 bg-slate-950/80 pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                    className="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
                   />
+                  <button
+                    type="button"
+                    aria-pressed={showRegPassword}
+                    aria-label={
+                      showRegPassword
+                        ? "Ocultar contraseña"
+                        : "Mostrar contraseña"
+                    }
+                    onClick={() => setShowRegPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-lg text-slate-400 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-600"
+                  >
+                    {showRegPassword ? (
+                      <EyeOff className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </button>
                 </div>
               </div>
 
               <button
                 type="submit"
                 disabled={regLoading}
-                className="w-full mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-600/25 hover:from-emerald-500 hover:to-teal-500 focus:outline-none disabled:opacity-50 transition-all"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
                 {regLoading ? (
                   <span>Registrando cuenta...</span>
                 ) : (
                   <>
-                    <span>Crear Cuenta de Proveedor</span>
-                    <ArrowRight className="h-4 w-4" />
+                    <span>Crear cuenta de proveedor</span>
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </>
                 )}
               </button>
             </form>
           )}
-
-          {/* Cuentas Demo Organizacionales */}
-          <div className="mt-6 pt-5 border-t border-slate-800">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
-              <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-              <span>Acceso Rápido Organizacional (Demo 1 Clic)</span>
-            </div>
-
-            <div className="space-y-2">
-              <div
-                onClick={() => handleAutofill("minera@safemine.pe", "minera123")}
-                className="flex items-center justify-between p-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-blue-500/50 hover:bg-blue-950/20 cursor-pointer transition-all group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30">
-                    <Building2 className="h-3.5 w-3.5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-white group-hover:text-blue-300">
-                      Cuenta Minera (Administración SSO)
-                    </div>
-                    <div className="text-[10px] font-mono text-slate-400">
-                      minera@safemine.pe · minera123
-                    </div>
-                  </div>
-                </div>
-                <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">
-                  Rellenar
-                </span>
-              </div>
-
-              <div
-                onClick={() =>
-                  handleAutofill("proveedor@contratistasperu.pe", "proveedor123")
-                }
-                className="flex items-center justify-between p-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-amber-500/50 hover:bg-amber-950/20 cursor-pointer transition-all group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-600/20 text-amber-400 border border-amber-500/30">
-                    <Briefcase className="h-3.5 w-3.5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-white group-hover:text-amber-300">
-                      Cuenta Proveedor Contratista
-                    </div>
-                    <div className="text-[10px] font-mono text-slate-400">
-                      proveedor@contratistasperu.pe · proveedor123
-                    </div>
-                  </div>
-                </div>
-                <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-                  Rellenar
-                </span>
-              </div>
-            </div>
           </div>
+
+          {/* Cuentas demo bajo demanda (<details> colapsado con <button type="button">) */}
+          <details className="sm-details mt-5 border-t border-slate-100 pt-4">
+            <summary className="rounded-md py-1 text-xs font-medium text-slate-600 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+              <span>Cuentas demo de acceso rápido</span>
+            </summary>
+
+            <div className="space-y-2 pt-3">
+              <button
+                type="button"
+                onClick={() =>
+                  handleAutofill("minera@safemine.pe", "minera123")
+                }
+                className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-colors hover:border-slate-300 hover:bg-slate-100/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
+                    <Building2
+                      className="h-3.5 w-3.5 text-slate-500"
+                      aria-hidden="true"
+                    />
+                    <span>Cuenta Minera</span>
+                  </div>
+                  <div className="mt-0.5 truncate font-mono text-[11px] text-slate-500">
+                    minera@safemine.pe · minera123
+                  </div>
+                </div>
+                <span className="shrink-0 text-[11px] font-medium text-blue-600">
+                  Usar
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleAutofill(
+                    "proveedor@contratistasperu.pe",
+                    "proveedor123"
+                  )
+                }
+                className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-colors hover:border-slate-300 hover:bg-slate-100/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
+                    <Building2
+                      className="h-3.5 w-3.5 text-slate-500"
+                      aria-hidden="true"
+                    />
+                    <span>Cuenta Proveedor</span>
+                  </div>
+                  <div className="mt-0.5 truncate font-mono text-[11px] text-slate-500">
+                    proveedor@contratistasperu.pe · proveedor123
+                  </div>
+                </div>
+                <span className="shrink-0 text-[11px] font-medium text-blue-600">
+                  Usar
+                </span>
+              </button>
+            </div>
+          </details>
         </div>
 
-        {/* Nota de redirección al Cliente Mobile */}
-        <div className="mt-5 rounded-xl border border-slate-800/80 bg-slate-900/60 px-4 py-3 flex items-center gap-3 text-xs text-slate-400">
-          <Smartphone className="h-5 w-5 text-emerald-400 shrink-0" />
-          <div className="leading-relaxed">
-            <strong className="text-slate-200">¿Eres Operario o Personal de Garita?</strong>{" "}
-            Ingresa desde <span className="font-mono text-emerald-400">SafeMine Mobile</span> (puerto <span className="font-mono text-slate-300">3001</span>) para rendir tu inducción, abrir tu Fotocheck QR o usar el escáner móvil.
-          </div>
+        {/* Nota discreta sobre SafeMine Mobile */}
+        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+          <Smartphone
+            className="mt-0.5 h-4 w-4 shrink-0 text-slate-400"
+            aria-hidden="true"
+          />
+          <p className="leading-relaxed">
+            <strong className="font-medium text-slate-800">
+              Operarios y garita:
+            </strong>{" "}
+            ingresan desde <span className="font-mono text-slate-800">SafeMine Mobile</span>{" "}
+            (puerto <span className="font-mono tabular-nums">3001</span>) para inducción, Fotocheck QR y escáner móvil.
+          </p>
         </div>
       </div>
     </div>

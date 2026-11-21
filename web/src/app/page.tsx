@@ -1,29 +1,28 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   Plus,
   ClipboardCheck,
   FolderKanban,
   RefreshCw,
-  CheckCircle2,
   AlertCircle,
   Thermometer,
   Droplets,
   Ruler,
-  UserCheck,
   Radio,
-  ShieldCheck,
-  ShieldAlert,
-  Clock,
+  Info,
+  X,
 } from "lucide-react";
 import PageContainer from "@/components/layout/PageContainer";
 import { Tabs } from "@/components/ui/Tabs";
 import { Modal } from "@/components/ui/Modal";
-import { Badge } from "@/components/ui/Badge";
+import { CopyButton } from "@/components/ui/CopyButton";
+import { useToast } from "@/components/ui/Toast";
 import CreateProposalModal from "@/components/minera/CreateProposalModal";
 import ProposalsList from "@/components/minera/ProposalsList";
 import WorkerEvaluationTable from "@/components/minera/WorkerEvaluationTable";
+import GateLogsTable from "@/components/minera/GateLogsTable";
 import { mineraService } from "@/services/mineraService";
 import { WS_URL } from "@/services/apiClient";
 import {
@@ -35,7 +34,21 @@ import {
 } from "@/types";
 import { generatePerformanceReportPDF } from "@/utils/pdfGenerator";
 
+function toggleTelemetryPopoverFallback(el: HTMLElement | null) {
+  if (!el) return;
+  const supportsPopover =
+    typeof HTMLElement !== "undefined" &&
+    Object.hasOwn(HTMLElement.prototype, "popover");
+  if (supportsPopover) return;
+  if (el.getAttribute("data-popover-open") === "true") {
+    el.removeAttribute("data-popover-open");
+  } else {
+    el.setAttribute("data-popover-open", "true");
+  }
+}
+
 export default function MineraHomePage() {
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<
     "convocatorias" | "evaluacion" | "bitacora"
   >("convocatorias");
@@ -50,10 +63,10 @@ export default function MineraHomePage() {
   const [generatedCreds, setGeneratedCreds] = useState<
     GeneratedCredential[] | null
   >(null);
-  const [banner, setBanner] = useState<{
-    type: "ok" | "err";
-    text: string;
-  } | null>(null);
+  const [alertBanner, setAlertBanner] = useState<string | null>(null);
+
+  const telemetryPopoverId = useId();
+  const telemetryPopoverRef = useRef<HTMLDivElement | null>(null);
 
   const loadProposals = useCallback(async () => {
     try {
@@ -125,10 +138,9 @@ export default function MineraHomePage() {
               payload.missing_epps.length > 0
                 ? ` (${payload.missing_epps.join(", ")})`
                 : "";
-            setBanner({
-              type: "err",
-              text: `Alerta desde Garita: El operario ${payload.worker_name} (DNI ${dni}) incumplió con sus EPPs en cámara${missingDetail}. Se marcó automáticamente 'No lleva sus EPPs'.`,
-            });
+            setAlertBanner(
+              `Alerta desde Garita: El operario ${payload.worker_name} (DNI ${dni}) incumplió con sus EPPs en cámara${missingDetail}. Se marcó automáticamente "No lleva sus EPPs".`
+            );
             loadProposals();
             loadAccessLogs();
           } else if (
@@ -164,9 +176,9 @@ export default function MineraHomePage() {
     required_epps: string[];
   }) => {
     const res = await mineraService.createProposal(payload);
-    setBanner({
-      type: "ok",
-      text: `Convocatoria "${res.proposal.title}" publicada exitosamente.`,
+    showToast({
+      variant: "success",
+      message: `Convocatoria "${res.proposal.title}" publicada exitosamente.`,
     });
     await loadProposals();
   };
@@ -176,13 +188,12 @@ export default function MineraHomePage() {
       const res = await mineraService.acceptProposal(proposalId);
       setGeneratedCreds(res.generated_credentials);
       setSelectedProposalId(proposalId);
-      setBanner({ type: "ok", text: res.message });
+      showToast({ variant: "success", message: res.message });
       await loadProposals();
     } catch (err: unknown) {
-      setBanner({
-        type: "err",
-        text: err instanceof Error ? err.message : "Error al aceptar propuesta",
-      });
+      setAlertBanner(
+        err instanceof Error ? err.message : "Error al aceptar propuesta"
+      );
     }
   };
 
@@ -192,15 +203,13 @@ export default function MineraHomePage() {
   ): Promise<Proposal | null> => {
     try {
       const res = await mineraService.saveEvaluations(proposal.id, items);
-      setBanner({ type: "ok", text: res.message });
+      showToast({ variant: "success", message: res.message });
       await loadProposals();
       return res.proposal;
     } catch (err: unknown) {
-      setBanner({
-        type: "err",
-        text:
-          err instanceof Error ? err.message : "Error al guardar calificaciones",
-      });
+      setAlertBanner(
+        err instanceof Error ? err.message : "Error al guardar calificaciones"
+      );
       return null;
     }
   };
@@ -212,9 +221,9 @@ export default function MineraHomePage() {
     const updated = (await handleSaveEvaluations(proposal, items)) || proposal;
     generatePerformanceReportPDF(updated);
     const res = await mineraService.sendReportToProvider(proposal.id);
-    setBanner({
-      type: "ok",
-      text: `${res.message} El archivo PDF ha sido descargado.`,
+    showToast({
+      variant: "success",
+      message: `${res.message} El archivo PDF ha sido descargado.`,
     });
     await loadProposals();
   };
@@ -224,173 +233,189 @@ export default function MineraHomePage() {
   return (
     <PageContainer
       title="Administración Minera"
-      subtitle="Gestiona requerimientos de cuadrillas, aprueba postulaciones de proveedores y califica el desempeño del personal."
+      subtitle="Convocatorias de cuadrillas, evaluación SSO y monitoreo de garita en tiempo real."
       actions={
         <>
           <button
             type="button"
             onClick={refreshAll}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
           >
-            <RefreshCw className="h-4 w-4 text-slate-500" />
+            <RefreshCw className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
             <span>Actualizar</span>
           </button>
           <button
             type="button"
             onClick={() => setIsCreateOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
           >
-            <Plus className="h-4 w-4" />
-            <span>Nueva Convocatoria de 10 personas</span>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            <span>Nueva convocatoria</span>
           </button>
         </>
       }
     >
-      {banner && (
+      {/* Alerta crítica inline (incumplimiento EPP en garita o error operativo) */}
+      {alertBanner && (
         <div
-          className={`flex items-center justify-between rounded-xl border px-4 py-3 text-xs font-medium ${
-            banner.type === "ok"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-red-200 bg-red-50 text-red-800"
-          }`}
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50/90 px-4 py-3 text-xs text-red-900"
         >
-          <div className="flex items-center gap-2">
-            {banner.type === "ok" ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-            ) : (
-              <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
-            )}
-            <span>{banner.text}</span>
+          <div className="flex items-start gap-2.5">
+            <AlertCircle
+              className="mt-0.5 h-4 w-4 shrink-0 text-red-600"
+              aria-hidden="true"
+            />
+            <span className="leading-relaxed font-medium">{alertBanner}</span>
           </div>
           <button
             type="button"
-            onClick={() => setBanner(null)}
-            className="text-xs underline ml-4"
+            onClick={() => setAlertBanner(null)}
+            aria-label="Cerrar alerta"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-red-700 hover:bg-red-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-red-600"
           >
-            Cerrar
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
       )}
 
-      {/* Tarjeta superior de Telemetría en Vivo de Garita (Arduino IoT) */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
-              <Radio className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Telemetría en Vivo de Garita (Arduino IoT)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Sensores DHT11 (Pin 12) y ultrasónico HC-SR04 (Pines 10/11) vía WebSocket
+      {/* Franja compacta de telemetría IoT de garita (~48px) */}
+      <section
+        aria-label="Telemetría en vivo de garita"
+        className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs shadow-sm"
+      >
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className={`h-2 w-2 rounded-full ${
+              !telemetry
+                ? "bg-slate-300"
+                : telemetry.simulated
+                ? "bg-amber-500"
+                : "bg-emerald-500"
+            }`}
+          />
+          <span className="font-semibold text-slate-900">Garita IoT</span>
+          <span className="text-slate-400">·</span>
+          <span className="text-slate-500">
+            {telemetry
+              ? telemetry.simulated
+                ? "Simulado"
+                : "Arduino UNO"
+              : "Esperando señal"}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 tabular-nums text-slate-700">
+          <span className="inline-flex items-center gap-1.5">
+            <Thermometer className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+            <span className="text-slate-500">Temp:</span>
+            <strong className="font-mono font-semibold text-slate-900">
+              {telemetry ? `${telemetry.temperatura_c.toFixed(1)} °C` : "-- °C"}
+            </strong>
+          </span>
+
+          <span className="inline-flex items-center gap-1.5">
+            <Droplets className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+            <span className="text-slate-500">Hum:</span>
+            <strong className="font-mono font-semibold text-slate-900">
+              {telemetry ? `${telemetry.humedad_pct.toFixed(1)} %` : "-- %"}
+            </strong>
+          </span>
+
+          <span className="inline-flex items-center gap-1.5">
+            <Ruler className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+            <span className="text-slate-500">Dist:</span>
+            <strong className="font-mono font-semibold text-slate-900">
+              {telemetry ? `${telemetry.distancia_cm.toFixed(1)} cm` : "-- cm"}
+            </strong>
+          </span>
+
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-slate-500">Cabina:</span>
+            {telemetry ? (
+              telemetry.presencia ? (
+                <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+                    aria-hidden="true"
+                  />
+                  Operario presente
+                </span>
+              ) : (
+                <span className="font-medium text-slate-600">Libre</span>
+              )
+            ) : (
+              <span className="text-slate-400">--</span>
+            )}
+          </span>
+
+          {lastTelemetryAt && (
+            <span className="font-mono text-[11px] text-slate-400">
+              {lastTelemetryAt}
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={() =>
+              toggleTelemetryPopoverFallback(telemetryPopoverRef.current)
+            }
+            aria-label="Detalle técnico de sensores IoT"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
+            {...({
+              popoverTarget: telemetryPopoverId,
+            } as React.ButtonHTMLAttributes<HTMLButtonElement>)}
+          >
+            <Info className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+            <span className="hidden sm:inline">Sensores</span>
+          </button>
+
+          <div
+            ref={telemetryPopoverRef}
+            id={telemetryPopoverId}
+            className="sm-popover w-72"
+            {...({ popover: "auto" } as React.HTMLAttributes<HTMLDivElement>)}
+          >
+            <div className="border-b border-slate-100 px-4 py-3">
+              <div className="text-xs font-semibold text-slate-900">
+                Hardware de Garita (Arduino IoT)
+              </div>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Lectura en tiempo real vía WebSocket
               </p>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {telemetry ? (
-              <Badge variant={telemetry.simulated ? "amber" : "emerald"}>
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    telemetry.simulated
-                      ? "bg-amber-500 animate-pulse"
-                      : "bg-emerald-500 animate-pulse"
-                  }`}
-                />
-                {telemetry.simulated
-                  ? "Arduino Simulado en Vivo"
-                  : "Arduino UNO Conectado"}
-              </Badge>
-            ) : (
-              <Badge variant="slate">Esperando telemetría...</Badge>
-            )}
-            {lastTelemetryAt && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-400">
-                <Clock className="h-3 w-3" />
-                {lastTelemetryAt}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100/80 text-amber-700 shrink-0">
-              <Thermometer className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                Temperatura
+            <dl className="divide-y divide-slate-100 px-4 py-1 text-xs">
+              <div className="flex items-center justify-between py-2">
+                <dt className="text-slate-500">Temperatura / Humedad</dt>
+                <dd className="font-mono text-[11px] text-slate-800">
+                  DHT11 (Pin 12)
+                </dd>
               </div>
-              <div className="text-lg font-bold text-slate-900 font-mono">
-                {telemetry ? `${telemetry.temperatura_c.toFixed(1)} °C` : "-- °C"}
+              <div className="flex items-center justify-between py-2">
+                <dt className="text-slate-500">Ultrasonido presencia</dt>
+                <dd className="font-mono text-[11px] text-slate-800">
+                  HC-SR04 (Pines 10/11)
+                </dd>
               </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100/80 text-blue-700 shrink-0">
-              <Droplets className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                Humedad
+              <div className="flex items-center justify-between py-2">
+                <dt className="text-slate-500">Origen de señal</dt>
+                <dd className="font-medium text-slate-800">
+                  {telemetry
+                    ? telemetry.simulated
+                      ? "Modo simulado"
+                      : "Arduino UNO físico"
+                    : "Pendiente"}
+                </dd>
               </div>
-              <div className="text-lg font-bold text-slate-900 font-mono">
-                {telemetry ? `${telemetry.humedad_pct.toFixed(1)} %` : "-- %"}
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100/80 text-indigo-700 shrink-0">
-              <Ruler className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                Distancia (HC-SR04)
-              </div>
-              <div className="text-lg font-bold text-slate-900 font-mono">
-                {telemetry ? `${telemetry.distancia_cm.toFixed(1)} cm` : "-- cm"}
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
-            <div
-              className={`flex h-10 w-10 items-center justify-center rounded-xl shrink-0 ${
-                telemetry?.presencia
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-slate-200/70 text-slate-600"
-              }`}
-            >
-              <UserCheck className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                Presencia en Cabina
-              </div>
-              <div className="mt-0.5">
-                {telemetry ? (
-                  telemetry.presencia ? (
-                    <Badge variant="emerald">Operario en Cabina</Badge>
-                  ) : (
-                    <Badge variant="slate">Cabina Libre</Badge>
-                  )
-                ) : (
-                  <span className="text-sm font-semibold text-slate-400">
-                    Sin señal
-                  </span>
-                )}
-              </div>
-            </div>
+            </dl>
           </div>
         </div>
-      </div>
+      </section>
 
       <Tabs
+        idPrefix="minera"
+        ariaLabel="Secciones de administración minera"
         activeTab={activeTab}
         onChange={(id) =>
           setActiveTab(id as "convocatorias" | "evaluacion" | "bitacora")
@@ -398,154 +423,51 @@ export default function MineraHomePage() {
         tabs={[
           {
             id: "convocatorias",
-            label: "Tab 1: Convocatorias y Postulaciones",
+            label: "Convocatorias y postulaciones",
             count: proposals.length,
             icon: <FolderKanban className="h-4 w-4" />,
           },
           {
             id: "evaluacion",
-            label: "Tab 2: Evaluación de Personal y Reportes",
+            label: "Evaluación SSO y reportes",
             count: acceptedCount,
             icon: <ClipboardCheck className="h-4 w-4" />,
           },
           {
             id: "bitacora",
-            label: "Tab 3: Bitácora de Garita (IoT)",
+            label: "Bitácora de garita (IoT)",
             count: accessLogs.length,
             icon: <Radio className="h-4 w-4" />,
           },
         ]}
       />
 
-      {activeTab === "convocatorias" ? (
-        <ProposalsList
-          proposals={proposals}
-          onAcceptProposal={handleAcceptProposal}
-          onGoToEvaluation={(proposalId) => {
-            setSelectedProposalId(proposalId);
-            setActiveTab("evaluacion");
-          }}
-        />
-      ) : activeTab === "evaluacion" ? (
-        <WorkerEvaluationTable
-          proposals={proposals}
-          selectedProposalId={selectedProposalId}
-          onSelectProposal={setSelectedProposalId}
-          onSaveEvaluations={handleSaveEvaluations}
-          onDownloadAndSendReport={handleDownloadAndSendReport}
-        />
-      ) : (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 bg-slate-50/60 px-6 py-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Historial de Inspecciones y Control de Acceso en Garita
-              </h3>
-              <p className="text-xs text-slate-500">
-                Sincronizado en tiempo real con el escáner móvil, visión artificial y módulo Arduino IoT.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={loadAccessLogs}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 self-start sm:self-auto"
-            >
-              <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
-              <span>Refrescar Bitácora</span>
-            </button>
-          </div>
-
-          {accessLogs.length === 0 ? (
-            <div className="p-12 text-center text-sm text-slate-500">
-              Aún no hay eventos registrados en la bitácora de garita.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold">
-                    <th className="py-3.5 px-4">Fecha / Hora</th>
-                    <th className="py-3.5 px-4">Trabajador / DNI</th>
-                    <th className="py-3.5 px-4">Fase</th>
-                    <th className="py-3.5 px-4">Estado</th>
-                    <th className="py-3.5 px-4">EPPs Detectados</th>
-                    <th className="py-3.5 px-4">EPPs Faltantes / Motivo</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {accessLogs.map((log) => (
-                    <tr
-                      key={log.id}
-                      className={
-                        log.status === "ROJO"
-                          ? "bg-red-50/30 hover:bg-red-50/50"
-                          : "hover:bg-slate-50/70"
-                      }
-                    >
-                      <td className="py-3 px-4 font-mono text-slate-600 whitespace-nowrap">
-                        {log.timestamp || "—"}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-900">
-                          {log.worker_name}
-                        </div>
-                        <div className="font-mono text-[11px] text-slate-500">
-                          DNI {log.worker_dni}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge variant="slate">{log.phase}</Badge>
-                      </td>
-                      <td className="py-3 px-4">
-                        {log.status === "VERDE" ? (
-                          <Badge variant="emerald">
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            VERDE
-                          </Badge>
-                        ) : log.status === "ROJO" ? (
-                          <Badge variant="red">
-                            <ShieldAlert className="h-3.5 w-3.5" />
-                            ROJO
-                          </Badge>
-                        ) : (
-                          <Badge variant="blue">{log.status}</Badge>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        {log.detected_epps && log.detected_epps.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {log.detected_epps.map((epp, idx) => (
-                              <Badge key={idx} variant="emerald">
-                                {epp}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic">Ninguno</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 max-w-xs">
-                        {log.missing_epps && log.missing_epps.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-1">
-                            {log.missing_epps.map((epp, idx) => (
-                              <Badge key={idx} variant="red">
-                                {epp}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                        <p className="text-[11px] text-slate-600">
-                          {log.message}
-                        </p>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+      <div
+        role="tabpanel"
+        aria-labelledby={`minera-tab-${activeTab}`}
+        className="sm-contain-section"
+      >
+        {activeTab === "convocatorias" ? (
+          <ProposalsList
+            proposals={proposals}
+            onAcceptProposal={handleAcceptProposal}
+            onGoToEvaluation={(proposalId) => {
+              setSelectedProposalId(proposalId);
+              setActiveTab("evaluacion");
+            }}
+          />
+        ) : activeTab === "evaluacion" ? (
+          <WorkerEvaluationTable
+            proposals={proposals}
+            selectedProposalId={selectedProposalId}
+            onSelectProposal={setSelectedProposalId}
+            onSaveEvaluations={handleSaveEvaluations}
+            onDownloadAndSendReport={handleDownloadAndSendReport}
+          />
+        ) : (
+          <GateLogsTable logs={accessLogs} onRefresh={loadAccessLogs} />
+        )}
+      </div>
 
       <CreateProposalModal
         isOpen={isCreateOpen}
@@ -553,58 +475,97 @@ export default function MineraHomePage() {
         onSubmit={handleCreateProposal}
       />
 
-      {/* Modal limpio de credenciales generadas al aceptar propuesta */}
+      {/* Modal nativo de credenciales generadas al aceptar propuesta */}
       <Modal
         isOpen={Boolean(generatedCreds)}
         onClose={() => setGeneratedCreds(null)}
-        title="Credenciales de Acceso Generadas Automáticamente"
-        subtitle="Se crearon y activaron estas 10 cuentas en la base de datos. Puedes copiar cualquier usuario/contraseña para probar el login real del trabajador."
+        title="Credenciales generadas"
+        subtitle="Se crearon las cuentas temporales para esta cuadrilla. Los operarios ingresan desde SafeMine Mobile."
         maxWidthClass="max-w-2xl"
       >
         {generatedCreds && (
           <div className="space-y-4">
-            <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 text-xs text-blue-900 leading-relaxed">
-              💡 <strong>Instrucciones de prueba:</strong> Puedes cerrar sesión desde el Header (esquina superior derecha), ingresar a <strong>/login</strong> y escribir el usuario y contraseña de cualquiera de estos 10 operarios para verificar su portal exclusivo con el Stepper de 3 pasos.
-            </div>
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full text-left text-xs border-collapse">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="Credenciales generadas"
+              className="sm-table-wrap sm-scroll rounded-lg border border-slate-200"
+            >
+              <table className="sm-table-responsive text-left text-xs">
+                <caption className="visually-hidden">
+                  Listado de credenciales temporales de operarios
+                </caption>
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold">
-                    <th className="py-2.5 px-3">#</th>
-                    <th className="py-2.5 px-3">Trabajador</th>
-                    <th className="py-2.5 px-3">DNI</th>
-                    <th className="py-2.5 px-3">Usuario</th>
-                    <th className="py-2.5 px-3">Contraseña Temporal</th>
+                  <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                      Trabajador
+                    </th>
+                    <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                      DNI
+                    </th>
+                    <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                      Usuario
+                    </th>
+                    <th scope="col" className="border-b border-slate-200 px-3 py-2.5">
+                      Clave temporal
+                    </th>
+                    <th
+                      scope="col"
+                      className="border-b border-slate-200 px-3 py-2.5 text-right"
+                    >
+                      Copiar
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {generatedCreds.map((c, idx) => (
-                    <tr key={c.worker_id} className="hover:bg-slate-50/60">
-                      <td className="py-2 px-3 text-slate-400">{idx + 1}</td>
-                      <td className="py-2 px-3 font-semibold text-slate-900">
+                    <tr key={c.worker_id} className="bg-white hover:bg-slate-50/70">
+                      <th
+                        scope="row"
+                        className="bg-white px-3 py-2 font-medium text-slate-900"
+                      >
+                        <span className="mr-1.5 font-mono text-[11px] text-slate-400 tabular-nums">
+                          {idx + 1}.
+                        </span>
                         {c.full_name}
-                      </td>
-                      <td className="py-2 px-3 font-mono text-slate-600">
+                      </th>
+                      <td
+                        data-label="DNI"
+                        className="px-3 py-2 font-mono text-slate-600 tabular-nums"
+                      >
                         {c.dni}
                       </td>
-                      <td className="py-2 px-3 font-mono font-bold text-blue-700 bg-blue-50/40">
+                      <td
+                        data-label="Usuario"
+                        className="px-3 py-2 font-mono font-medium text-slate-900"
+                      >
                         {c.username}
                       </td>
-                      <td className="py-2 px-3 font-mono font-bold text-emerald-700 bg-emerald-50/40">
+                      <td
+                        data-label="Clave temporal"
+                        className="px-3 py-2 font-mono font-medium text-slate-900"
+                      >
                         {c.password}
+                      </td>
+                      <td data-label="Copiar" className="px-3 py-2 text-right">
+                        <CopyButton
+                          value={`${c.username} / ${c.password}`}
+                          label={`Copiar usuario y clave de ${c.full_name}`}
+                        />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
             <div className="flex justify-end">
               <button
                 type="button"
                 onClick={() => setGeneratedCreds(null)}
-                className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-semibold text-white hover:bg-blue-700 shadow-xs"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
               >
-                Cerrar y Continuar
+                Listo
               </button>
             </div>
           </div>

@@ -1,9 +1,21 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { FileDown, Save, ShieldAlert } from "lucide-react";
 import { Proposal, WorkerEvaluationItem } from "@/types";
-import { Badge } from "@/components/ui/Badge";
+
+type EvalField =
+  | "mala_conducta"
+  | "mal_trabajo"
+  | "no_lleva_epps"
+  | "observaciones";
+
+interface WorkerDraft {
+  mala_conducta: boolean;
+  mal_trabajo: boolean;
+  no_lleva_epps: boolean;
+  observaciones: string;
+}
 
 interface WorkerEvaluationTableProps {
   proposals: Proposal[];
@@ -26,45 +38,84 @@ export default function WorkerEvaluationTable({
   onSaveEvaluations,
   onDownloadAndSendReport,
 }: WorkerEvaluationTableProps) {
-  const acceptedProposals = proposals.filter((p) => p.status === "ACEPTADA");
+  const acceptedProposals = useMemo(
+    () => proposals.filter((p) => p.status === "ACEPTADA"),
+    [proposals]
+  );
+
   const activeProposal =
     acceptedProposals.find((p) => p.id === selectedProposalId) ||
     acceptedProposals[0] ||
     null;
 
-  const [drafts, setDrafts] = useState<
-    Record<
-      number,
-      {
-        mala_conducta: boolean;
-        mal_trabajo: boolean;
-        no_lleva_epps: boolean;
-        observaciones: string;
-      }
-    >
-  >({});
+  const [drafts, setDrafts] = useState<Record<number, WorkerDraft>>({});
+  const [dirtyCount, setDirtyCount] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  // Track unsaved edits per worker+field so real-time WebSocket refreshes never wipe local changes
+  const dirtyFieldsRef = useRef<Record<number, Set<EvalField>>>({});
+
+  const selectId = useId();
+  const captionId = useId();
+
   useEffect(() => {
-    const next: typeof drafts = {};
-    for (const p of acceptedProposals) {
-      for (const w of p.workers) {
-        next[w.id] = {
-          mala_conducta: w.mala_conducta,
-          mal_trabajo: w.mal_trabajo,
-          no_lleva_epps: w.no_lleva_epps,
-          observaciones: w.observaciones || "",
-        };
+    setDrafts((prev) => {
+      const next: Record<number, WorkerDraft> = {};
+      for (const p of acceptedProposals) {
+        for (const w of p.workers) {
+          const prevWorker = prev[w.id];
+          const dirty = dirtyFieldsRef.current[w.id];
+          next[w.id] = {
+            mala_conducta:
+              dirty?.has("mala_conducta") && prevWorker
+                ? prevWorker.mala_conducta
+                : w.mala_conducta,
+            mal_trabajo:
+              dirty?.has("mal_trabajo") && prevWorker
+                ? prevWorker.mal_trabajo
+                : w.mal_trabajo,
+            no_lleva_epps:
+              dirty?.has("no_lleva_epps") && prevWorker
+                ? prevWorker.no_lleva_epps
+                : w.no_lleva_epps,
+            observaciones:
+              dirty?.has("observaciones") && prevWorker
+                ? prevWorker.observaciones
+                : w.observaciones || "",
+          };
+        }
       }
+      return next;
+    });
+  }, [acceptedProposals]);
+
+  const recomputeDirtyCount = (proposal: Proposal | null) => {
+    if (!proposal) {
+      setDirtyCount(0);
+      return;
     }
-    setDrafts(next);
-  }, [proposals]);
+    let count = 0;
+    for (const w of proposal.workers) {
+      const set = dirtyFieldsRef.current[w.id];
+      if (set && set.size > 0) count++;
+    }
+    setDirtyCount(count);
+  };
+
+  useEffect(() => {
+    recomputeDirtyCount(activeProposal);
+  }, [activeProposal]);
 
   const updateDraft = (
     workerId: number,
-    field: "mala_conducta" | "mal_trabajo" | "no_lleva_epps" | "observaciones",
+    field: EvalField,
     value: boolean | string
   ) => {
+    if (!dirtyFieldsRef.current[workerId]) {
+      dirtyFieldsRef.current[workerId] = new Set();
+    }
+    dirtyFieldsRef.current[workerId].add(field);
+
     setDrafts((prev) => ({
       ...prev,
       [workerId]: {
@@ -77,6 +128,15 @@ export default function WorkerEvaluationTable({
         [field]: value,
       },
     }));
+
+    recomputeDirtyCount(activeProposal);
+  };
+
+  const clearDirtyForProposal = (proposal: Proposal) => {
+    for (const w of proposal.workers) {
+      delete dirtyFieldsRef.current[w.id];
+    }
+    recomputeDirtyCount(proposal);
   };
 
   const buildPayload = (proposal: Proposal): WorkerEvaluationItem[] =>
@@ -98,54 +158,65 @@ export default function WorkerEvaluationTable({
 
   if (!activeProposal) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
-        Acepta primero una propuesta en la pestaña &quot;Convocatorias y
-        Postulaciones&quot; para habilitar la evaluación de su personal.
+      <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+        Acepta primero una propuesta en &quot;Convocatorias y postulaciones&quot;
+        para habilitar la evaluación SSO del personal.
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       {/* Barra superior de selección de cuadrilla y acciones */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-slate-200 bg-slate-50/60 px-6 py-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Cuadrilla Activa:
+      <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/70 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <label
+            htmlFor={selectId}
+            className="text-xs font-medium text-slate-600 shrink-0"
+          >
+            Cuadrilla activa
           </label>
           <select
+            id={selectId}
+            name="active_proposal"
             value={activeProposal.id}
             onChange={(e) => onSelectProposal(Number(e.target.value))}
-            className="rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-900 focus:border-blue-600 focus:outline-none"
+            className="h-9 max-w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
           >
             {acceptedProposals.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.title} — {p.provider_company_name || "Proveedor"} (
-                {p.workers.length} operarios)
+                {p.workers.length})
               </option>
             ))}
           </select>
+          {dirtyCount > 0 && (
+            <span className="text-[11px] font-medium text-amber-700 tabular-nums">
+              {dirtyCount} registro{dirtyCount === 1 ? "" : "s"} sin guardar
+            </span>
+          )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             disabled={saving}
             onClick={async () => {
               setSaving(true);
               try {
-                await onSaveEvaluations(
+                const saved = await onSaveEvaluations(
                   activeProposal,
                   buildPayload(activeProposal)
                 );
+                if (saved) clearDirtyForProposal(activeProposal);
               } finally {
                 setSaving(false);
               }
             }}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
           >
-            <Save className="h-4 w-4 text-slate-500" />
-            <span>Guardar Calificaciones</span>
+            <Save className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+            <span>Guardar calificaciones</span>
           </button>
 
           <button
@@ -158,37 +229,62 @@ export default function WorkerEvaluationTable({
                   activeProposal,
                   buildPayload(activeProposal)
                 );
+                clearDirtyForProposal(activeProposal);
               } finally {
                 setSaving(false);
               }
             }}
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
           >
-            <FileDown className="h-4 w-4" />
-            <span>Descargar Reporte PDF y Enviar al Proveedor</span>
+            <FileDown className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Descargar PDF y enviar</span>
           </button>
         </div>
       </div>
 
-      {/* Tabla limpia de evaluación */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs border-collapse">
+      {/* Tabla accesible y responsive con encabezados sticky y vista apilada por @container */}
+      <div
+        tabIndex={0}
+        role="region"
+        aria-labelledby={captionId}
+        className="sm-table-wrap sm-scroll max-h-[68vh]"
+      >
+        <table className="sm-table-responsive text-left text-xs">
+          <caption id={captionId} className="visually-hidden">
+            Evaluación de desempeño SSO — {activeProposal.title}
+          </caption>
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold">
-              <th className="py-3.5 px-4">#</th>
-              <th className="py-3.5 px-4">Trabajador / Cargo</th>
-              <th className="py-3.5 px-4">Acreditación</th>
-              <th className="py-3.5 px-4 text-center">Mala Conducta</th>
-              <th className="py-3.5 px-4 text-center">
-                Mal Trabajo / Bajo Desempeño
+            <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <th scope="col" className="border-b border-slate-200 px-4 py-3">
+                Trabajador
               </th>
-              <th className="py-3.5 px-4 text-center">
-                No lleva sus EPPs (Manual / Cámara IA)
+              <th scope="col" className="border-b border-slate-200 px-4 py-3">
+                Acreditación
               </th>
-              <th className="py-3.5 px-4">Observaciones</th>
+              <th
+                scope="col"
+                className="border-b border-slate-200 px-3 py-3 text-center"
+              >
+                Mala conducta
+              </th>
+              <th
+                scope="col"
+                className="border-b border-slate-200 px-3 py-3 text-center"
+              >
+                Mal trabajo
+              </th>
+              <th
+                scope="col"
+                className="border-b border-slate-200 px-3 py-3 text-center"
+              >
+                Sin EPPs
+              </th>
+              <th scope="col" className="border-b border-slate-200 px-4 py-3">
+                Observaciones
+              </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200/80">
+          <tbody className="divide-y divide-slate-100">
             {activeProposal.workers.map((w, idx) => {
               const d = drafts[w.id] || {
                 mala_conducta: w.mala_conducta,
@@ -203,125 +299,116 @@ export default function WorkerEvaluationTable({
                 <tr
                   key={w.id}
                   className={
-                    hasIssue ? "bg-red-50/30 hover:bg-red-50/50" : "hover:bg-slate-50"
+                    hasIssue
+                      ? "bg-red-50/30 hover:bg-red-50/50"
+                      : "bg-white hover:bg-slate-50/70"
                   }
                 >
-                  <td className="py-3.5 px-4 text-slate-400 font-mono">
-                    {idx + 1}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <div className="font-semibold text-slate-900 text-sm">
-                      {w.full_name}
+                  <th
+                    scope="row"
+                    className={`px-4 py-3 font-normal ${
+                      hasIssue ? "bg-red-50/70" : "bg-white"
+                    }`}
+                  >
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                        {idx + 1}.
+                      </span>
+                      <div>
+                        <div className="font-semibold text-slate-900">
+                          {w.full_name}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          <span className="font-mono tabular-nums">
+                            DNI {w.dni}
+                          </span>{" "}
+                          · {w.position}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-slate-500">
-                      DNI <span className="font-mono">{w.dni}</span> ·{" "}
-                      {w.position}
-                    </div>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <div className="flex flex-col gap-1">
-                      {w.is_authorized ? (
-                        <Badge variant="emerald" className="w-fit">
-                          Autorizado
-                        </Badge>
-                      ) : (
-                        <Badge variant="amber" className="w-fit">
-                          Pendiente
-                        </Badge>
-                      )}
-                      <span className="text-[11px] text-slate-500">
-                        Examen: {w.exam_score}% · EMO: {w.medical_cert_status}
+                  </th>
+
+                  <td data-label="Acreditación" className="px-4 py-3 whitespace-nowrap">
+                    <div className="flex flex-col gap-0.5">
+                      <span
+                        className={`text-xs font-medium ${
+                          w.is_authorized ? "text-emerald-700" : "text-slate-600"
+                        }`}
+                      >
+                        {w.is_authorized ? "Autorizado" : "Pendiente"}
+                      </span>
+                      <span className="text-[11px] text-slate-500 tabular-nums">
+                        Examen {w.exam_score}% · EMO{" "}
+                        {w.medical_cert_status === "VALIDADA_POR_IA"
+                          ? "OK"
+                          : w.medical_cert_status === "RECHAZADA"
+                          ? "Rechazado"
+                          : "Pend."}
                       </span>
                     </div>
                   </td>
 
-                  {/* Checkbox 1: Mala conducta */}
-                  <td className="py-3.5 px-4 text-center">
-                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <td
+                    data-label="Mala conducta"
+                    className="px-3 py-3 text-center"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={d.mala_conducta}
+                      aria-label={`Mala conducta — ${w.full_name}`}
+                      onChange={(e) =>
+                        updateDraft(w.id, "mala_conducta", e.target.checked)
+                      }
+                      className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                    />
+                  </td>
+
+                  <td data-label="Mal trabajo" className="px-3 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={d.mal_trabajo}
+                      aria-label={`Mal trabajo — ${w.full_name}`}
+                      onChange={(e) =>
+                        updateDraft(w.id, "mal_trabajo", e.target.checked)
+                      }
+                      className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                    />
+                  </td>
+
+                  <td data-label="Sin EPPs" className="px-3 py-3 text-center">
+                    <div className="inline-flex flex-col items-center gap-1">
                       <input
                         type="checkbox"
-                        checked={d.mala_conducta}
+                        checked={d.no_lleva_epps}
+                        aria-label={`No lleva sus EPPs — ${w.full_name}`}
                         onChange={(e) =>
-                          updateDraft(w.id, "mala_conducta", e.target.checked)
+                          updateDraft(w.id, "no_lleva_epps", e.target.checked)
                         }
-                        className="h-4 w-4 rounded accent-red-600"
+                        className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                       />
-                      <span
-                        className={
-                          d.mala_conducta
-                            ? "font-semibold text-red-700"
-                            : "text-slate-600"
-                        }
-                      >
-                        Mala conducta
-                      </span>
-                    </label>
-                  </td>
-
-                  {/* Checkbox 2: Mal trabajo */}
-                  <td className="py-3.5 px-4 text-center">
-                    <label className="inline-flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={d.mal_trabajo}
-                        onChange={(e) =>
-                          updateDraft(w.id, "mal_trabajo", e.target.checked)
-                        }
-                        className="h-4 w-4 rounded accent-amber-600"
-                      />
-                      <span
-                        className={
-                          d.mal_trabajo
-                            ? "font-semibold text-amber-700"
-                            : "text-slate-600"
-                        }
-                      >
-                        Mal trabajo
-                      </span>
-                    </label>
-                  </td>
-
-                  {/* Checkbox 3: No lleva sus EPPs */}
-                  <td className="py-3.5 px-4 text-center">
-                    <div className="flex flex-col items-center gap-1">
-                      <label className="inline-flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={d.no_lleva_epps}
-                          onChange={(e) =>
-                            updateDraft(w.id, "no_lleva_epps", e.target.checked)
-                          }
-                          className="h-4 w-4 rounded accent-red-600"
-                        />
-                        <span
-                          className={
-                            d.no_lleva_epps
-                              ? "font-semibold text-red-700"
-                              : "text-slate-600"
-                          }
-                        >
-                          No lleva sus EPPs
-                        </span>
-                      </label>
                       {w.faltas_epp_count > 0 && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-                          <ShieldAlert className="h-3 w-3" />
-                          {w.faltas_epp_count} falta(s) en cámara
+                        <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 tabular-nums">
+                          <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+                          {w.faltas_epp_count} cámara
                         </span>
                       )}
                     </div>
                   </td>
 
-                  {/* Observaciones */}
-                  <td className="py-3.5 px-4">
+                  <td
+                    data-label="Observaciones"
+                    data-stack="true"
+                    className="px-4 py-3"
+                  >
                     <input
                       type="text"
                       value={d.observaciones}
+                      aria-label={`Observaciones para ${w.full_name}`}
                       onChange={(e) =>
                         updateDraft(w.id, "observaciones", e.target.value)
                       }
                       placeholder="Añadir observación..."
-                      className="w-full min-w-[200px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-blue-600 focus:outline-none"
+                      className="w-full min-w-[180px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
                     />
                   </td>
                 </tr>

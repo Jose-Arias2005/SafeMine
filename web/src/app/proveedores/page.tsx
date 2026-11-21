@@ -8,10 +8,10 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
-  Building2,
 } from "lucide-react";
 import PageContainer from "@/components/layout/PageContainer";
 import { Tabs } from "@/components/ui/Tabs";
+import { useToast } from "@/components/ui/Toast";
 import OpenProposalsView from "@/components/proveedores/OpenProposalsView";
 import CredentialsTable from "@/components/proveedores/CredentialsTable";
 import ReportsInbox from "@/components/proveedores/ReportsInbox";
@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function ProveedoresPage() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<
     "abiertas" | "credenciales" | "reportes"
   >("abiertas");
@@ -49,9 +50,9 @@ export default function ProveedoresPage() {
   ) => {
     try {
       const res = await proveedorService.postulateSquad(proposalId, workers);
-      setBanner({
-        type: "ok",
-        text: `${res.message} Puedes hacer seguimiento de sus credenciales en la pestaña 'Nómina y Accesos Generados'.`,
+      showToast({
+        variant: "success",
+        message: `${res.message} Revisa sus accesos en "Nómina y accesos".`,
       });
       await loadData();
       setActiveTab("credenciales");
@@ -80,29 +81,22 @@ export default function ProveedoresPage() {
 
   return (
     <PageContainer
-      title="Portal de Proveedores Contratistas"
-      subtitle={`Bienvenido ${user?.full_name || ""}. Gestiona postulaciones de cuadrillas, consulta credenciales creadas automáticamente y revisa reportes emitidos por la Minera.`}
+      title="Portal de Proveedores"
+      subtitle={`Postulación de cuadrillas, accesos temporales y reportes SSO${user?.company_name ? ` · ${user.company_name}` : ""}.`}
       actions={
-        <div className="flex items-center gap-2">
-          {user?.company_name && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
-              <Building2 className="h-3.5 w-3.5 text-blue-600" />
-              <span>{user.company_name}</span>
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={loadData}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
-            <span>Actualizar</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={loadData}
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
+        >
+          <RefreshCw className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+          <span>Actualizar</span>
+        </button>
       }
     >
       {banner && (
         <div
+          role={banner.type === "err" ? "alert" : "status"}
           className={`flex items-center justify-between rounded-xl border px-4 py-3 text-xs font-medium ${
             banner.type === "ok"
               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
@@ -128,6 +122,8 @@ export default function ProveedoresPage() {
       )}
 
       <Tabs
+        idPrefix="proveedores"
+        ariaLabel="Secciones del portal de proveedores"
         activeTab={activeTab}
         onChange={(id) =>
           setActiveTab(id as "abiertas" | "credenciales" | "reportes")
@@ -135,37 +131,45 @@ export default function ProveedoresPage() {
         tabs={[
           {
             id: "abiertas",
-            label: "Tab 1: Propuestas Abiertas",
+            label: "Propuestas abiertas",
             count: openCount,
             icon: <Briefcase className="h-4 w-4" />,
           },
           {
             id: "credenciales",
-            label: "Tab 2: Nómina y Accesos Generados",
+            label: "Nómina y accesos",
             count: providerSquads.length,
             icon: <KeyRound className="h-4 w-4" />,
           },
           {
             id: "reportes",
-            label: "Tab 3: Reportes Recibidos",
+            label: "Reportes recibidos",
             count: providerReports.length,
             icon: <FileText className="h-4 w-4" />,
           },
         ]}
       />
 
-      {activeTab === "abiertas" && (
-        <OpenProposalsView
-          proposals={proposals}
-          onPostulate={handlePostulate}
-        />
-      )}
+      <div
+        role="tabpanel"
+        aria-labelledby={`proveedores-tab-${activeTab}`}
+        className="sm-contain-section"
+      >
+        {activeTab === "abiertas" && (
+          <OpenProposalsView
+            proposals={proposals}
+            onPostulate={handlePostulate}
+          />
+        )}
 
-      {activeTab === "credenciales" && (
-        <CredentialsTable proposals={providerSquads} />
-      )}
+        {activeTab === "credenciales" && (
+          <CredentialsTable proposals={providerSquads} />
+        )}
 
-      {activeTab === "reportes" && <ReportsInbox proposals={providerReports} />}
+        {activeTab === "reportes" && (
+          <ReportsInbox proposals={providerReports} />
+        )}
+      </div>
     </PageContainer>
   );
 }
