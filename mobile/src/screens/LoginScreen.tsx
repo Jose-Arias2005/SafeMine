@@ -15,8 +15,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
+import { CollapsibleTestTools } from "../components/CollapsibleTestTools";
 import { useAuth } from "../context/AuthContext";
 import { authService } from "../services/authService";
+import { colors, radius, spacing } from "../theme/tokens";
 import { DemoAccount, RootStackParamList } from "../types";
 import { loadOfflineBadge } from "../utils/offlineStorage";
 
@@ -46,7 +48,7 @@ export function LoginScreen({ navigation }: Props) {
       const badge = await loadOfflineBadge();
       if (active && badge?.worker) {
         setHasCachedBadge(true);
-        setCachedOwnerName(`${badge.worker.full_name} (DNI ${badge.worker.dni})`);
+        setCachedOwnerName(`${badge.worker.full_name} · DNI ${badge.worker.dni}`);
       }
       try {
         const res = await authService.getDemoAccounts();
@@ -133,8 +135,17 @@ export function LoginScreen({ navigation }: Props) {
     const saved = await setLanApiUrl(lanInput.trim() || null);
     setLanInput(saved);
     setLanModalOpen(false);
-    Alert.alert("Red LAN actualizada", `Conectado a: ${saved}`);
+    Alert.alert("Servidor actualizado", `Conectado a: ${saved}`);
   };
+
+  const handleResetLanUrl = async () => {
+    const saved = await setLanApiUrl(null);
+    setLanInput(saved);
+    setLanModalOpen(false);
+    Alert.alert("Servidor restablecido", `URL automática: ${saved}`);
+  };
+
+  const hasActiveSession = Boolean(user && worker);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -146,160 +157,206 @@ export function LoginScreen({ navigation }: Props) {
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Barra superior de estado LAN */}
+          {/* Cabecera mínima */}
           <View style={styles.topRow}>
-            <View style={styles.brandBadge}>
-              <Ionicons name="shield-checkmark" size={18} color="#f59e0b" />
-              <Text style={styles.brandBadgeText}>SAFEMINE AI · MOBILE</Text>
+            <View style={styles.brandRow}>
+              <View style={styles.brandIconBox}>
+                <Ionicons
+                  name="shield-checkmark"
+                  size={18}
+                  color={colors.accent}
+                />
+              </View>
+              <Text style={styles.brandText}>SafeMine</Text>
             </View>
+
             <Pressable
-              style={styles.lanChip}
+              style={styles.settingsBtn}
               onPress={() => setLanModalOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Configurar servidor"
             >
-              <Ionicons name="wifi" size={14} color="#38bdf8" />
-              <Text style={styles.lanChipText} numberOfLines={1}>
-                {apiBaseUrl.replace(/^https?:\/\//, "")}
-              </Text>
+              <Ionicons
+                name="settings-outline"
+                size={20}
+                color={colors.textSecondary}
+              />
             </Pressable>
           </View>
 
           {/* Encabezado */}
           <View style={styles.heroBlock}>
-            <Text style={styles.title}>Acreditación Operativa</Text>
+            <Text style={styles.title}>Acreditación de Operarios</Text>
             <Text style={styles.subtitle}>
-              Ingresa con tu DNI y contraseña temporal asignada por tu empresa
-              contratista para completar tu inducción IPERC, auditar tu EMO y
-              obtener tu Fotocheck QR.
+              Completa tu inducción IPERC, valida tu certificado EMO y obtén tu
+              Fotocheck QR para ingreso a mina.
             </Text>
           </View>
 
-          {/* Sesión activa rápida si ya estaba autenticado */}
-          {user && worker && (
-            <View style={styles.activeSessionCard}>
-              <View style={styles.activeSessionHeader}>
-                <View style={styles.flex}>
-                  <Text style={styles.activeSessionLabel}>SESIÓN ACTIVA</Text>
-                  <Text style={styles.activeSessionName}>
-                    {worker.full_name}
-                  </Text>
-                  <Text style={styles.activeSessionMeta}>
-                    DNI {worker.dni} · {worker.position}
+          {/* Flujo único: sesión activa O formulario de ingreso (nunca doble CTA) */}
+          {hasActiveSession && worker ? (
+            <View style={styles.card}>
+              <View style={styles.sessionTopRow}>
+                <View style={styles.sessionBadge}>
+                  <View
+                    style={[
+                      styles.statusDot,
+                      {
+                        backgroundColor: worker.is_authorized
+                          ? colors.success
+                          : colors.accent,
+                      },
+                    ]}
+                  />
+                  <Text style={styles.sessionBadgeText}>
+                    {worker.is_authorized
+                      ? "Habilitado"
+                      : "Acreditación en curso"}
                   </Text>
                 </View>
-                <Pressable onPress={logout} style={styles.logoutIconBtn}>
-                  <Ionicons name="log-out-outline" size={20} color="#f87171" />
-                </Pressable>
               </View>
+
+              <Text style={styles.sessionName}>{worker.full_name}</Text>
+              <Text style={styles.sessionMeta}>
+                DNI {worker.dni} · {worker.position}
+              </Text>
+
               <Pressable
-                style={styles.continueBtn}
+                style={styles.primaryBtn}
                 onPress={() => routeWorkerByStep(worker)}
               >
-                <Text style={styles.continueBtnText}>
+                <Text style={styles.primaryBtnText}>
                   {worker.is_authorized
-                    ? "Abrir mi Fotocheck QR Autorizado"
+                    ? "Abrir mi Fotocheck QR"
                     : !worker.exam_passed
-                    ? "Continuar Paso 1: Inducción IPERC"
-                    : "Continuar Paso 2: Certificado EMO"}
+                    ? "Continuar: Paso 1 (IPERC)"
+                    : "Continuar: Paso 2 (EMO)"}
                 </Text>
-                <Ionicons name="arrow-forward" size={18} color="#020617" />
+                <Ionicons
+                  name="arrow-forward"
+                  size={18}
+                  color={colors.onAccent}
+                />
+              </Pressable>
+
+              <Pressable style={styles.secondaryGhostBtn} onPress={logout}>
+                <Ionicons
+                  name="log-out-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.secondaryGhostBtnText}>
+                  Cambiar de operario
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.card}>
+              <Text style={styles.inputLabel}>DNI o usuario</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ej. 46102938"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={identifier}
+                onChangeText={(val) => {
+                  setIdentifier(val);
+                  if (/^\d{8}$/.test(val.trim()) && !password) {
+                    setPassword(`mina${val.trim().slice(-4)}`);
+                  }
+                }}
+              />
+
+              <Text style={[styles.inputLabel, styles.mt14]}>
+                Contraseña temporal
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ingresa tu contraseña"
+                placeholderTextColor={colors.textMuted}
+                secureTextEntry
+                autoCapitalize="none"
+                value={password}
+                onChangeText={setPassword}
+              />
+
+              <Pressable
+                style={[styles.primaryBtn, loading && styles.disabledBtn]}
+                onPress={handleLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color={colors.onAccent} />
+                ) : (
+                  <Text style={styles.primaryBtnText}>Ingresar</Text>
+                )}
               </Pressable>
             </View>
           )}
 
-          {/* Formulario de Login */}
-          <View style={styles.card}>
-            <Text style={styles.inputLabel}>DNI o Usuario Operario</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ej: 46102938 o op.46102938"
-              placeholderTextColor="#64748b"
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={identifier}
-              onChangeText={(val) => {
-                setIdentifier(val);
-                if (/^\d{8}$/.test(val.trim()) && !password) {
-                  setPassword(`mina${val.trim().slice(-4)}`);
-                }
-              }}
-            />
-
-            <Text style={[styles.inputLabel, styles.mt14]}>
-              Contraseña Temporal
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ej: mina2938"
-              placeholderTextColor="#64748b"
-              secureTextEntry
-              autoCapitalize="none"
-              value={password}
-              onChangeText={setPassword}
-            />
-
-            <Pressable
-              style={[styles.primaryBtn, loading && styles.disabledBtn]}
-              onPress={handleLogin}
-              disabled={loading}
+          {/* Acceso directo sin conexión al Fotocheck */}
+          <Pressable style={styles.actionRow} onPress={handleOpenOfflineBadge}>
+            <View
+              style={[
+                styles.actionIconBox,
+                hasCachedBadge && styles.actionIconBoxSuccess,
+              ]}
             >
-              {loading ? (
-                <ActivityIndicator color="#020617" />
-              ) : (
-                <>
-                  <Ionicons name="key-outline" size={18} color="#020617" />
-                  <Text style={styles.primaryBtnText}>
-                    Ingresar a mi Acreditación
-                  </Text>
-                </>
-              )}
-            </Pressable>
-          </View>
+              <Ionicons
+                name="qr-code-outline"
+                size={20}
+                color={hasCachedBadge ? colors.success : colors.textSecondary}
+              />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.actionTitle}>
+                Ver mi Fotocheck guardado (Offline)
+              </Text>
+              <Text style={styles.actionSubtitle} numberOfLines={1}>
+                {hasCachedBadge && cachedOwnerName
+                  ? cachedOwnerName
+                  : "Disponible sin señal tras completar tu acreditación"}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={colors.textMuted}
+            />
+          </Pressable>
 
-          {/* Accesos directos Offline & Modo Garita */}
-          <View style={styles.quickActions}>
+          {/* Separador hacia Modo Garita */}
+          <View style={styles.sectionDivider}>
+            <Text style={styles.sectionLabel}>CONTROL DE ACCESO</Text>
             <Pressable
-              style={styles.offlineButton}
-              onPress={handleOpenOfflineBadge}
-            >
-              <View style={styles.quickIconCircleEmerald}>
-                <Ionicons name="qr-code-outline" size={20} color="#34d399" />
-              </View>
-              <View style={styles.flex}>
-                <Text style={styles.offlineButtonTitle}>
-                  Ver mi Fotocheck guardado (Offline)
-                </Text>
-                <Text style={styles.offlineButtonSub}>
-                  {hasCachedBadge && cachedOwnerName
-                    ? `Disponible sin red: ${cachedOwnerName}`
-                    : "Abre tu credencial QR almacenada en el dispositivo"}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#34d399" />
-            </Pressable>
-
-            <Pressable
-              style={styles.gateButton}
+              style={styles.actionRow}
               onPress={() => navigation.navigate("GateScanner")}
             >
-              <View style={styles.quickIconCircleBlue}>
-                <Ionicons name="scan-outline" size={20} color="#38bdf8" />
+              <View style={styles.actionIconBox}>
+                <Ionicons
+                  name="scan-outline"
+                  size={20}
+                  color={colors.textPrimary}
+                />
               </View>
               <View style={styles.flex}>
-                <Text style={styles.gateButtonTitle}>Modo Garita</Text>
-                <Text style={styles.gateButtonSub}>
-                  Escáner nativo QR + Control IA de EPPs (AWS Rekognition)
+                <Text style={styles.actionTitle}>Modo Garita</Text>
+                <Text style={styles.actionSubtitle}>
+                  Escaneo de Fotocheck QR e inspección de EPPs
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color="#38bdf8" />
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textMuted}
+              />
             </Pressable>
           </View>
 
-          {/* Accesos rápidos de demostración si hay cuentas cargadas */}
-          {demoWorkers.length > 0 && (
-            <View style={styles.demoSection}>
-              <Text style={styles.demoSectionTitle}>
-                Cuentas Operario de Prueba Rápida
-              </Text>
+          {/* Cuentas de prueba colapsadas */}
+          {!hasActiveSession && demoWorkers.length > 0 && (
+            <CollapsibleTestTools title="Cuentas de prueba">
               <View style={styles.demoChipsWrap}>
                 {demoWorkers.map((acc) => (
                   <Pressable
@@ -315,17 +372,17 @@ export function LoginScreen({ navigation }: Props) {
                     </Text>
                     <Text style={styles.demoChipMeta}>
                       DNI {acc.dni || acc.username} ·{" "}
-                      {acc.is_authorized ? "AUTORIZADO" : "PENDIENTE"}
+                      {acc.is_authorized ? "Habilitado" : "Pendiente"}
                     </Text>
                   </Pressable>
                 ))}
               </View>
-            </View>
+            </CollapsibleTestTools>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Modal de configuración IP LAN */}
+      {/* Modal de configuración del servidor LAN */}
       <Modal
         visible={lanModalOpen}
         transparent
@@ -334,29 +391,39 @@ export function LoginScreen({ navigation }: Props) {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Configurar Servidor FastAPI (LAN)</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Configuración de servidor</Text>
+              <Pressable
+                onPress={() => setLanModalOpen(false)}
+                accessibilityLabel="Cerrar"
+              >
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </Pressable>
+            </View>
             <Text style={styles.modalDesc}>
-              Ingresa la IP WiFi local de la laptop donde se ejecuta el backend
-              (`uvicorn app.main:app --host 0.0.0.0 --port 8000`).
+              Dirección del servidor SafeMine API en la red local (LAN).
             </Text>
             <TextInput
               style={styles.input}
               value={lanInput}
               onChangeText={setLanInput}
               placeholder="http://192.168.1.100:8000"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
             />
             <View style={styles.modalActions}>
               <Pressable
-                style={styles.modalCancelBtn}
-                onPress={() => setLanModalOpen(false)}
+                style={styles.modalSecondaryBtn}
+                onPress={handleResetLanUrl}
               >
-                <Text style={styles.modalCancelText}>Cancelar</Text>
+                <Text style={styles.modalSecondaryText}>Automático</Text>
               </Pressable>
-              <Pressable style={styles.modalSaveBtn} onPress={handleSaveLanUrl}>
-                <Text style={styles.modalSaveText}>Guardar IP</Text>
+              <Pressable
+                style={styles.modalPrimaryBtn}
+                onPress={handleSaveLanUrl}
+              >
+                <Text style={styles.modalPrimaryText}>Guardar</Text>
               </Pressable>
             </View>
           </View>
@@ -369,149 +436,133 @@ export function LoginScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#020617",
+    backgroundColor: colors.canvas,
   },
   flex: {
     flex: 1,
   },
   container: {
-    padding: 20,
+    padding: spacing.xl,
     paddingBottom: 36,
-    gap: 18,
+    gap: spacing.lg,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
   },
-  brandBadge: {
+  brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: "#1e293b",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#334155",
+    gap: spacing.sm,
   },
-  brandBadgeText: {
-    color: "#f8fafc",
-    fontSize: 11,
+  brandIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accentBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  brandText: {
+    fontSize: 17,
     fontWeight: "800",
-    letterSpacing: 0.6,
+    color: colors.textPrimary,
+    letterSpacing: -0.2,
   },
-  lanChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#0f172a",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+  settingsBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#1e3a5f",
-    maxWidth: 175,
-  },
-  lanChipText: {
-    color: "#7dd3fc",
-    fontSize: 11,
-    fontWeight: "600",
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
   heroBlock: {
-    marginTop: 4,
     gap: 6,
+    marginTop: spacing.xs,
   },
   title: {
-    color: "#f8fafc",
-    fontSize: 26,
+    color: colors.textPrimary,
+    fontSize: 24,
     fontWeight: "800",
+    letterSpacing: -0.3,
   },
   subtitle: {
-    color: "#94a3b8",
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  activeSessionCard: {
-    backgroundColor: "#0f172a",
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#f59e0b55",
-    gap: 12,
-  },
-  activeSessionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  activeSessionLabel: {
-    color: "#f59e0b",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-  },
-  activeSessionName: {
-    color: "#f8fafc",
-    fontSize: 16,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  activeSessionMeta: {
-    color: "#94a3b8",
-    fontSize: 12,
-  },
-  logoutIconBtn: {
-    padding: 8,
-    borderRadius: 10,
-    backgroundColor: "#1e293b",
-  },
-  continueBtn: {
-    backgroundColor: "#f59e0b",
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  continueBtnText: {
-    color: "#020617",
-    fontWeight: "800",
-    fontSize: 13,
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
   },
   card: {
-    backgroundColor: "#0f172a",
-    borderRadius: 20,
-    padding: 18,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
     borderWidth: 1,
-    borderColor: "#1e293b",
+    borderColor: colors.border,
   },
-  inputLabel: {
-    color: "#cbd5e1",
+  sessionTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  sessionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  sessionBadgeText: {
     fontSize: 12,
     fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  sessionName: {
+    color: colors.textPrimary,
+    fontSize: 19,
+    fontWeight: "800",
+  },
+  sessionMeta: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  inputLabel: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "600",
     marginBottom: 6,
   },
   mt14: {
     marginTop: 14,
   },
   input: {
-    backgroundColor: "#020617",
+    backgroundColor: colors.canvas,
     borderWidth: 1,
-    borderColor: "#334155",
-    borderRadius: 12,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: "#f8fafc",
+    color: colors.textPrimary,
     fontSize: 15,
   },
   primaryBtn: {
     marginTop: 18,
-    backgroundColor: "#f59e0b",
-    borderRadius: 14,
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
     paddingVertical: 14,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -521,154 +572,149 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   primaryBtnText: {
-    color: "#020617",
+    color: colors.onAccent,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
   },
-  quickActions: {
-    gap: 12,
+  secondaryGhostBtn: {
+    marginTop: spacing.md,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
-  offlineButton: {
-    backgroundColor: "#062c22",
+  secondaryGhostBtnText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  actionRow: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#10b98155",
-    borderRadius: 16,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: spacing.md,
   },
-  quickIconCircleEmerald: {
+  actionIconBox: {
     width: 40,
     height: 40,
-    borderRadius: 12,
-    backgroundColor: "#064e3b",
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
     alignItems: "center",
     justifyContent: "center",
   },
-  offlineButtonTitle: {
-    color: "#ecfdf5",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  offlineButtonSub: {
-    color: "#6ee7b7",
-    fontSize: 11,
-    marginTop: 2,
-  },
-  gateButton: {
-    backgroundColor: "#082038",
+  actionIconBoxSuccess: {
+    backgroundColor: colors.successSoft,
     borderWidth: 1,
-    borderColor: "#38bdf855",
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    borderColor: colors.successBorder,
   },
-  quickIconCircleBlue: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#0c4a6e",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  gateButtonTitle: {
-    color: "#f0f9ff",
+  actionTitle: {
+    color: colors.textPrimary,
     fontSize: 14,
     fontWeight: "700",
   },
-  gateButtonSub: {
-    color: "#7dd3fc",
-    fontSize: 11,
+  actionSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
     marginTop: 2,
   },
-  demoSection: {
-    marginTop: 4,
-    gap: 8,
+  sectionDivider: {
+    marginTop: spacing.xs,
+    gap: spacing.sm,
   },
-  demoSectionTitle: {
-    color: "#64748b",
+  sectionLabel: {
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: "700",
-    textTransform: "uppercase",
     letterSpacing: 0.6,
+    paddingHorizontal: 2,
   },
   demoChipsWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: spacing.sm,
   },
   demoChip: {
-    backgroundColor: "#0f172a",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#1e293b",
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     width: "48%",
   },
   demoChipName: {
-    color: "#e2e8f0",
+    color: colors.textPrimary,
     fontSize: 12,
     fontWeight: "700",
   },
   demoChipMeta: {
-    color: "#94a3b8",
-    fontSize: 10,
+    color: colors.textMuted,
+    fontSize: 11,
     marginTop: 2,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(2, 6, 23, 0.8)",
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
     justifyContent: "flex-end",
   },
   modalSheet: {
-    backgroundColor: "#0f172a",
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 22,
     borderTopWidth: 1,
-    borderColor: "#334155",
-    gap: 12,
+    borderColor: colors.border,
+    gap: spacing.md,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   modalTitle: {
-    color: "#f8fafc",
+    color: colors.textPrimary,
     fontSize: 17,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   modalDesc: {
-    color: "#94a3b8",
-    fontSize: 12,
-    lineHeight: 18,
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
   },
   modalActions: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 6,
+    marginTop: spacing.xs,
   },
-  modalCancelBtn: {
+  modalSecondaryBtn: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: "#1e293b",
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: "center",
   },
-  modalCancelText: {
-    color: "#cbd5e1",
+  modalSecondaryText: {
+    color: colors.textPrimary,
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  modalPrimaryBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+  },
+  modalPrimaryText: {
+    color: colors.onAccent,
     fontWeight: "700",
-  },
-  modalSaveBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: "#38bdf8",
-    alignItems: "center",
-  },
-  modalSaveText: {
-    color: "#020617",
-    fontWeight: "800",
+    fontSize: 14,
   },
 });
-

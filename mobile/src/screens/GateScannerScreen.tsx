@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,8 +19,15 @@ import {
   useCameraPermissions,
 } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
+import { CollapsibleTestTools } from "../components/CollapsibleTestTools";
+import { GateConnectionModal } from "../components/gate/GateConnectionModal";
+import {
+  formatEppLabel,
+  GateTrafficLight,
+} from "../components/gate/GateTrafficLight";
 import { getWsUrl } from "../services/apiClient";
 import { kioscoService } from "../services/kioscoService";
+import { colors, radius, spacing } from "../theme/tokens";
 import {
   clearPendingOfflineLogs,
   enqueueOfflineLog,
@@ -36,12 +45,6 @@ import {
 } from "../types";
 
 type GateStage = "SCAN_QR" | "CAPTURE_EPP" | "SEMAFORO_RESULT";
-
-const EPP_LABELS: Record<string, string> = {
-  HEAD_COVER: "Casco de Seguridad (HEAD_COVER)",
-  HAND_COVER: "Guantes Protectores (HAND_COVER)",
-  FACE_COVER: "Protección Facial / Lentes (FACE_COVER)",
-};
 
 const DEFAULT_DEMO_ROSTER: CachedWorkerRosterItem[] = [
   {
@@ -102,6 +105,7 @@ export function GateScannerScreen() {
   const [cachedRoster, setCachedRoster] = useState<CachedWorkerRosterItem[]>([]);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isUpdatingRoster, setIsUpdatingRoster] = useState<boolean>(false);
+  const [connectionModalOpen, setConnectionModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
     let active = true;
@@ -115,7 +119,9 @@ export function GateScannerScreen() {
           setPendingCount(count);
           setCachedRoster(roster);
         }
-      } catch { }
+      } catch {
+        // Ignora errores de lectura inicial
+      }
     })();
     return () => {
       active = false;
@@ -128,13 +134,15 @@ export function GateScannerScreen() {
     await setGateOfflineMode(nextVal);
     if (nextVal) {
       Alert.alert(
-        "📡 Modo Garita Offline Activado",
-        "La garita operará sin conexión a AWS. Las lecturas de QR se validarán contra el padrón local y los accesos o faltas se guardarán en la cola Store-and-Forward del dispositivo."
+        "Modo sin conexión activado",
+        "Las lecturas de QR se validarán con el padrón local y los registros se guardarán en la cola del dispositivo."
       );
     } else {
       Alert.alert(
-        "🌐 Modo Online (AWS) Restablecido",
-        "Conexión con el backend en AWS activa. Si tienes registros en cola, pulsa 'Recuperar Señal y Sincronizar con AWS' para transferirlos a AWS RDS."
+        "Modo en línea restablecido",
+        pendingCount > 0
+          ? "Conexión activa. Puedes sincronizar los registros pendientes desde este panel."
+          : "Conexión activa con el servidor SafeMine."
       );
     }
   };
@@ -146,15 +154,15 @@ export function GateScannerScreen() {
       await saveCachedRoster(roster);
       setCachedRoster(roster);
       Alert.alert(
-        "Padrón Local Actualizado",
-        `Se descargaron ${roster.length} trabajadores registrados al almacenamiento de la garita para validación sin internet.`
+        "Padrón local actualizado",
+        `Se guardaron ${roster.length} operarios en el dispositivo para validación sin conexión.`
       );
     } catch (err) {
       Alert.alert(
-        "Error al descargar padrón",
+        "Error al actualizar padrón",
         err instanceof Error
           ? err.message
-          : "No se pudo conectar con AWS para descargar el padrón."
+          : "No se pudo conectar con el servidor para descargar el padrón."
       );
     } finally {
       setIsUpdatingRoster(false);
@@ -164,7 +172,7 @@ export function GateScannerScreen() {
   const handleSyncWithAws = async () => {
     const pending = await getPendingOfflineLogs();
     if (pending.length === 0) {
-      Alert.alert("Cola vacía", "No hay eventos pendientes para sincronizar con AWS.");
+      Alert.alert("Sin pendientes", "No hay registros en cola por sincronizar.");
       return;
     }
 
@@ -174,15 +182,15 @@ export function GateScannerScreen() {
       await clearPendingOfflineLogs();
       setPendingCount(0);
       Alert.alert(
-        "¡Sincronización Exitosa con AWS!",
-        `${res.synced_count} evento(s) acumulados durante el corte de señal fueron transferidos a AWS RDS y transmitidos en tiempo real por WebSockets.`
+        "Sincronización completada",
+        `${res.synced_count} registro(s) enviados correctamente al servidor.`
       );
     } catch (err) {
       Alert.alert(
-        "Fallo de sincronización",
+        "Error de sincronización",
         err instanceof Error
           ? err.message
-          : "No fue posible conectar con el servidor AWS para transferir los registros."
+          : "No fue posible conectar con el servidor para enviar los registros."
       );
     } finally {
       setIsSyncing(false);
@@ -248,7 +256,9 @@ export function GateScannerScreen() {
                 (dni && w.dni === String(dni))
             );
           }
-        } catch { }
+        } catch {
+          // Puede ser DNI en texto plano
+        }
 
         if (!matched) {
           const clean = rawPayload.trim();
@@ -260,8 +270,8 @@ export function GateScannerScreen() {
         if (!matched) {
           scanLockRef.current = false;
           Alert.alert(
-            "QR No Encontrado en Padrón Local",
-            "El código QR escaneado no coincide con ningún trabajador en el padrón local de la garita. Si es nuevo, pulsa 'Descargar Padrón Local' cuando tengas cobertura."
+            "No encontrado en padrón local",
+            "El QR o DNI no figura en el padrón guardado en este equipo. Actualiza el padrón cuando tengas cobertura."
           );
           return;
         }
@@ -298,14 +308,14 @@ export function GateScannerScreen() {
           const reasons: string[] = [];
           if (!matched.exam_passed || matched.exam_score < 80) {
             reasons.push(
-              `Examen de inducción no aprobado (${matched.exam_score}/100, mínimo 80)`
+              `Inducción IPERC no aprobada (${matched.exam_score}/100, mínimo 80)`
             );
           }
           if (matched.medical_cert_status !== "VALIDADA_POR_IA") {
-            reasons.push(`Constancia médica (${matched.medical_cert_status})`);
+            reasons.push(`Certificado médico (${matched.medical_cert_status})`);
           }
           if (reasons.length === 0) {
-            reasons.push("Trabajador no acreditado en padrón local");
+            reasons.push("Operario no habilitado en padrón local");
           }
 
           const offlineLog = {
@@ -317,7 +327,7 @@ export function GateScannerScreen() {
             detected_epps: [],
             missing_epps: reasons,
             missing_items: reasons,
-            message: `ACCESO DENEGADO (Offline): ${matched.full_name} NO AUTORIZADO (${reasons.join(" | ")})`,
+            message: `Acceso denegado (Sin conexión): ${matched.full_name} no está habilitado.`,
             timestamp: new Date().toISOString(),
           };
 
@@ -332,7 +342,7 @@ export function GateScannerScreen() {
           return;
         }
 
-        // Trabajador Autorizado en modo offline
+        // Trabajador autorizado en modo offline
         setActiveWorker(mappedWorker);
         setQrRejectionReasons([]);
         setQrRejectionMessage(null);
@@ -341,7 +351,9 @@ export function GateScannerScreen() {
         scanLockRef.current = false;
         Alert.alert(
           "Error en validación offline",
-          err instanceof Error ? err.message : "Fallo al validar código en memoria local."
+          err instanceof Error
+            ? err.message
+            : "No se pudo validar el código en memoria local."
         );
       } finally {
         setProcessing(false);
@@ -349,7 +361,7 @@ export function GateScannerScreen() {
       return;
     }
 
-    // Modo Online estándar hacia el backend en AWS
+    // Modo Online estándar
     try {
       const res = await kioscoService.verifyQr(rawPayload);
       setActiveWorker(res.worker);
@@ -368,12 +380,14 @@ export function GateScannerScreen() {
     } catch (err) {
       scanLockRef.current = false;
       Alert.alert(
-        "Fallo de conexión o QR no reconocido",
-        (err instanceof Error ? err.message : "No se pudo verificar el código QR.") +
-        "\n\n¿Deseas activar el Modo Garita Offline para operar con el padrón local?",
+        "No se pudo validar el QR",
+        (err instanceof Error
+          ? err.message
+          : "No se pudo verificar el código QR.") +
+          "\n\n¿Deseas activar el modo sin conexión para trabajar con el padrón local?",
         [
           { text: "Cancelar", style: "cancel" },
-          { text: "Activar Modo Offline", onPress: handleToggleOfflineMode },
+          { text: "Usar modo offline", onPress: handleToggleOfflineMode },
         ]
       );
     } finally {
@@ -399,13 +413,13 @@ export function GateScannerScreen() {
         const detectedEpps = isRejected
           ? ["HEAD_COVER"]
           : ["HEAD_COVER", "HAND_COVER", "FACE_COVER"];
-        const missingEpps = isRejected
-          ? ["HAND_COVER", "FACE_COVER"]
-          : [];
+        const missingEpps = isRejected ? ["HAND_COVER", "FACE_COVER"] : [];
         const status = isRejected ? "ROJO" : "VERDE";
         const message = isRejected
-          ? `Acceso Denegado (Offline). Falta portar: ${missingEpps.join(", ")}`
-          : "Acceso Autorizado en Modo Offline. EPPs completos.";
+          ? `Acceso denegado (Sin conexión). Falta: ${missingEpps
+              .map(formatEppLabel)
+              .join(", ")}.`
+          : "Acceso autorizado en modo sin conexión. EPPs completos.";
 
         const offlineLog = {
           worker_id: activeWorker.id,
@@ -430,7 +444,7 @@ export function GateScannerScreen() {
           detected_epps: detectedEpps,
           missing_epps: missingEpps,
           mode: "OFFLINE_STORE_AND_FORWARD",
-          confidence_summary: `Validación Offline Local: ${detectedEpps.length}/3 EPPs detectados`,
+          confidence_summary: `Validación local: ${detectedEpps.length}/3 EPPs detectados`,
           message,
           worker: activeWorker,
         };
@@ -442,7 +456,7 @@ export function GateScannerScreen() {
           "Error en registro offline",
           err instanceof Error
             ? err.message
-            : "No se pudo registrar el evento en la cola local."
+            : "No se pudo guardar el registro en la cola local."
         );
       } finally {
         setProcessing(false);
@@ -450,7 +464,7 @@ export function GateScannerScreen() {
       return;
     }
 
-    // Modo Online estándar con AWS Rekognition
+    // Modo Online estándar
     try {
       let frameAsset = null;
       if (!simulateMode && cameraRef.current) {
@@ -466,7 +480,9 @@ export function GateScannerScreen() {
               mimeType: "image/jpeg",
             };
           }
-        } catch { }
+        } catch {
+          // Si falla la captura local, el backend gestiona el fallback
+        }
       }
 
       const verification = await kioscoService.verifyEpp({
@@ -479,10 +495,10 @@ export function GateScannerScreen() {
       setStage("SEMAFORO_RESULT");
     } catch (err) {
       Alert.alert(
-        "Error en verificación Rekognition",
+        "Error al verificar EPPs",
         err instanceof Error
           ? err.message
-          : "No se pudo procesar el fotograma de EPPs."
+          : "No se pudo procesar la verificación de EPPs."
       );
     } finally {
       setProcessing(false);
@@ -492,7 +508,7 @@ export function GateScannerScreen() {
   if (!permission) {
     return (
       <SafeAreaView style={styles.centered}>
-        <ActivityIndicator size="large" color="#38bdf8" />
+        <ActivityIndicator size="large" color={colors.accent} />
       </SafeAreaView>
     );
   }
@@ -500,220 +516,194 @@ export function GateScannerScreen() {
   if (!permission.granted) {
     return (
       <SafeAreaView style={styles.centered}>
-        <Ionicons name="videocam-off-outline" size={52} color="#38bdf8" />
-        <Text style={styles.permTitle}>Acceso a Cámara para Garita IA</Text>
+        <View style={styles.permIconBox}>
+          <Ionicons
+            name="videocam-off-outline"
+            size={36}
+            color={colors.textSecondary}
+          />
+        </View>
+        <Text style={styles.permTitle}>Permiso de cámara requerido</Text>
         <Text style={styles.permDesc}>
-          Modo Garita utiliza `expo-camera` para escanear el Fotocheck QR del
-          operario y capturar fotogramas de EPPs hacia AWS Rekognition.
+          Modo Garita necesita acceso a la cámara para escanear el Fotocheck QR
+          y verificar los EPPs del operario.
         </Text>
         <Pressable style={styles.permBtn} onPress={requestPermission}>
-          <Text style={styles.permBtnText}>Conceder Permiso de Cámara</Text>
+          <Text style={styles.permBtnText}>Permitir cámara</Text>
         </Pressable>
       </SafeAreaView>
     );
   }
 
   const isGreen = eppResult?.status === "VERDE";
+  const showWarningBanner = isOfflineMode || pendingCount > 0;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
-      <ScrollView contentContainerStyle={styles.container}>
-        {/* Barra de estado Garita + WebSocket */}
-        <View style={styles.statusRow}>
-          <View style={styles.stageTabs}>
-            <View
-              style={[
-                styles.stagePill,
-                stage === "SCAN_QR" && styles.stagePillActiveBlue,
-              ]}
-            >
-              <Text style={styles.stagePillText}>1. QR</Text>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Barra superior compacta en 1 sola línea */}
+          <View style={styles.topBar}>
+            <View style={styles.stepStrip}>
+              <Text
+                style={[
+                  styles.stepText,
+                  stage === "SCAN_QR" && styles.stepTextActive,
+                ]}
+              >
+                1. QR
+              </Text>
+              <Text style={styles.stepDot}>·</Text>
+              <Text
+                style={[
+                  styles.stepText,
+                  stage === "CAPTURE_EPP" && styles.stepTextActive,
+                ]}
+              >
+                2. EPPs
+              </Text>
+              <Text style={styles.stepDot}>·</Text>
+              <Text
+                style={[
+                  styles.stepText,
+                  stage === "SEMAFORO_RESULT" && styles.stepTextActive,
+                ]}
+              >
+                3. Resultado
+              </Text>
             </View>
-            <View
-              style={[
-                styles.stagePill,
-                stage === "CAPTURE_EPP" && styles.stagePillActiveAmber,
-              ]}
-            >
-              <Text style={styles.stagePillText}>2. EPPs IA</Text>
-            </View>
-            <View
-              style={[
-                styles.stagePill,
-                stage === "SEMAFORO_RESULT" && styles.stagePillActiveEmerald,
-              ]}
-            >
-              <Text style={styles.stagePillText}>3. Semáforo</Text>
-            </View>
-          </View>
 
-          <View style={styles.wsBadge}>
-            <View
+            <Pressable
               style={[
-                styles.wsDot,
-                { backgroundColor: wsOnline ? "#34d399" : "#64748b" },
+                styles.statusPill,
+                showWarningBanner && styles.statusPillWarning,
               ]}
-            />
-            <Text style={styles.wsText}>
-              {wsOnline ? "WS Garita" : "HTTP"}
-            </Text>
-          </View>
-        </View>
-
-        {/* Panel de Modo Garita Offline & Store-and-Forward hacia AWS */}
-        <View style={styles.offlineCard}>
-          <View style={styles.offlineHeader}>
-            <View style={styles.offlineTitleRow}>
-              <Ionicons
-                name={isOfflineMode ? "cloud-offline" : "cloud-done"}
-                size={18}
-                color={isOfflineMode ? "#f59e0b" : "#34d399"}
+              onPress={() => setConnectionModalOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Estado de conexión y padrón"
+            >
+              <View
+                style={[
+                  styles.statusDot,
+                  {
+                    backgroundColor: isOfflineMode
+                      ? colors.warning
+                      : pendingCount > 0
+                      ? colors.warning
+                      : colors.success,
+                  },
+                ]}
               />
               <Text
                 style={[
-                  styles.offlineTitleText,
-                  { color: isOfflineMode ? "#f59e0b" : "#34d399" },
+                  styles.statusPillText,
+                  showWarningBanner && styles.statusPillTextWarning,
                 ]}
               >
-                {isOfflineMode
-                  ? "Modo Garita Offline (Sin Señal)"
-                  : "Modo Online (Conectado a AWS)"}
+                {isOfflineMode ? "Offline" : "En línea"}
+                {pendingCount > 0 ? ` · ${pendingCount}` : ""}
               </Text>
-            </View>
-
-            <Pressable
-              style={[
-                styles.offlineToggleBtn,
-                isOfflineMode
-                  ? styles.offlineToggleBtnActive
-                  : styles.offlineToggleBtnInactive,
-              ]}
-              onPress={handleToggleOfflineMode}
-            >
-              <Text style={styles.offlineToggleText}>
-                {isOfflineMode ? "Conectar a Online" : "Simular Corte de Señal"}
-              </Text>
-            </Pressable>
-          </View>
-
-          {/* Contador de Cola Store-and-Forward */}
-          <View style={styles.queueStatusRow}>
-            <Ionicons
-              name="file-tray-full-outline"
-              size={14}
-              color={pendingCount > 0 ? "#fcd34d" : "#94a3b8"}
-            />
-            <Text
-              style={[
-                styles.queueCountText,
-                pendingCount > 0 && styles.queueCountTextHighlight,
-              ]}
-            >
-              {isOfflineMode
-                ? `Modo Offline: ${pendingCount} registro(s) en cola local esperando señal hacia AWS`
-                : `Cola local Store-and-Forward: ${pendingCount} registro(s) pendiente(s)`}
-            </Text>
-          </View>
-
-          {/* Botones de Acción de Sincronización */}
-          <View style={styles.offlineActionsRow}>
-            <Pressable
-              style={styles.rosterDownloadBtn}
-              onPress={handleDownloadRoster}
-              disabled={isUpdatingRoster}
-            >
-              {isUpdatingRoster ? (
-                <ActivityIndicator size="small" color="#38bdf8" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-download-outline" size={15} color="#38bdf8" />
-                  <Text style={styles.rosterDownloadText}>
-                    Actualizar Padrón ({cachedRoster.length > 0 ? cachedRoster.length : "Demo"})
-                  </Text>
-                </>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={[
-                styles.syncAwsBtn,
-                pendingCount > 0
-                  ? styles.syncAwsBtnActive
-                  : styles.syncAwsBtnDisabled,
-              ]}
-              onPress={handleSyncWithAws}
-              disabled={pendingCount === 0 || isSyncing}
-            >
-              {isSyncing ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload" size={15} color="#ffffff" />
-                  <Text style={styles.syncAwsText}>
-                    Recuperar Señal y Sincronizar ({pendingCount})
-                  </Text>
-                </>
-              )}
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Visor de cámara nativa en etapas 1 y 2 */}
-        {stage !== "SEMAFORO_RESULT" && (
-          <View style={styles.cameraBox}>
-            <CameraView
-              ref={cameraRef}
-              style={styles.cameraView}
-              facing={facing}
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onBarcodeScanned={
-                stage === "SCAN_QR" ? handleBarcodeScanned : undefined
-              }
-            />
-            <View style={styles.cameraHud}>
-              <View style={styles.cameraTopHud}>
-                <Text style={styles.cameraHudBadge}>
-                  {stage === "SCAN_QR"
-                    ? "FASE 1 · APUNTA AL FOTOCHECK QR"
-                    : "FASE 2 · ENCUADRA CASCO, GUANTES Y ROSTRO"}
-                </Text>
-                <Pressable
-                  style={styles.flipBtn}
-                  onPress={() =>
-                    setFacing((prev) => (prev === "back" ? "front" : "back"))
-                  }
-                >
-                  <Ionicons name="camera-reverse" size={20} color="#f8fafc" />
-                </Pressable>
-              </View>
-
-              <View
-                style={[
-                  styles.reticle,
-                  stage === "CAPTURE_EPP" && styles.reticleEpp,
-                ]}
+              <Ionicons
+                name="chevron-down"
+                size={13}
+                color={
+                  showWarningBanner ? colors.warningText : colors.textSecondary
+                }
               />
-
-              <Text style={styles.cameraBottomHint}>
-                {stage === "SCAN_QR"
-                  ? "Decodificación óptica instantánea con expo-camera"
-                  : `Operario identificado: ${activeWorker?.full_name}`}
-              </Text>
-            </View>
+            </Pressable>
           </View>
-        )}
 
-        {/* Controles específicos de FASE 1: Ingreso manual alternativo por DNI */}
-        {stage === "SCAN_QR" && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>
-              Verificación Manual por DNI (Respaldo)
-            </Text>
-            <View style={styles.manualRow}>
+          {/* Banner ámbar discreto únicamente cuando hay modo offline o pendientes */}
+          {showWarningBanner && (
+            <Pressable
+              style={styles.warningBanner}
+              onPress={() => setConnectionModalOpen(true)}
+            >
+              <Ionicons
+                name={
+                  isOfflineMode
+                    ? "cloud-offline-outline"
+                    : "cloud-upload-outline"
+                }
+                size={15}
+                color={colors.warningText}
+              />
+              <Text style={styles.warningBannerText} numberOfLines={1}>
+                {isOfflineMode
+                  ? `Sin conexión · ${pendingCount} registro(s) en cola`
+                  : `${pendingCount} registro(s) pendientes por sincronizar`}
+              </Text>
+              <Text style={styles.warningBannerAction}>Gestionar</Text>
+            </Pressable>
+          )}
+
+          {/* Visor de cámara protagonista en Fases 1 y 2 */}
+          {stage !== "SEMAFORO_RESULT" && (
+            <View style={styles.cameraBox}>
+              <CameraView
+                ref={cameraRef}
+                style={styles.cameraView}
+                facing={facing}
+                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                onBarcodeScanned={
+                  stage === "SCAN_QR" ? handleBarcodeScanned : undefined
+                }
+              />
+              <View style={styles.cameraHud}>
+                <View style={styles.cameraTopHud}>
+                  <Text style={styles.cameraHudBadge}>
+                    {stage === "SCAN_QR"
+                      ? "Apunta al Fotocheck QR"
+                      : "Encuadra casco, guantes y rostro"}
+                  </Text>
+                  <Pressable
+                    style={styles.flipBtn}
+                    onPress={() =>
+                      setFacing((prev) => (prev === "back" ? "front" : "back"))
+                    }
+                    accessibilityLabel="Cambiar cámara"
+                  >
+                    <Ionicons
+                      name="camera-reverse-outline"
+                      size={20}
+                      color={colors.onDark}
+                    />
+                  </Pressable>
+                </View>
+
+                <View
+                  style={[
+                    styles.reticle,
+                    stage === "CAPTURE_EPP" && styles.reticleEpp,
+                  ]}
+                />
+
+                <Text style={styles.cameraBottomHint}>
+                  {stage === "SCAN_QR"
+                    ? processing
+                      ? "Verificando código QR..."
+                      : "Escaneo automático activo"
+                    : `${activeWorker?.full_name || "Operario"} · DNI ${
+                        activeWorker?.dni || ""
+                      }`}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Fase 1: Acceso compacto a ingreso manual por DNI */}
+          {stage === "SCAN_QR" && (
+            <View style={styles.manualCard}>
               <TextInput
                 style={styles.manualInput}
-                placeholder="DNI del operario (ej. 45892310)"
-                placeholderTextColor="#64748b"
+                placeholder="Ingreso manual por DNI (ej. 45891021)"
+                placeholderTextColor={colors.textMuted}
                 keyboardType="number-pad"
                 value={manualDni}
                 onChangeText={setManualDni}
@@ -730,193 +720,121 @@ export function GateScannerScreen() {
                 }}
               >
                 {processing ? (
-                  <ActivityIndicator color="#020617" size="small" />
+                  <ActivityIndicator color={colors.onAccent} size="small" />
                 ) : (
                   <Text style={styles.manualBtnText}>Validar</Text>
                 )}
               </Pressable>
             </View>
-          </View>
-        )}
+          )}
 
-        {/* Controles específicos de FASE 2: Disparo hacia AWS Rekognition */}
-        {stage === "CAPTURE_EPP" && activeWorker && (
-          <View style={styles.card}>
-            <View style={styles.workerBanner}>
-              <Ionicons name="person-circle" size={34} color="#34d399" />
-              <View style={styles.flex}>
-                <Text style={styles.workerBannerName}>
-                  {activeWorker.full_name}
-                </Text>
-                <Text style={styles.workerBannerMeta}>
-                  DNI {activeWorker.dni} · {activeWorker.position}
-                </Text>
-              </View>
-            </View>
-
-            <Pressable
-              style={[styles.captureEppBtn, processing && styles.disabledBtn]}
-              onPress={() => handleCaptureAndVerifyEpp()}
-              disabled={processing}
-            >
-              {processing ? (
-                <ActivityIndicator color="#020617" />
-              ) : (
-                <>
-                  <Ionicons name="aperture" size={22} color="#020617" />
-                  <Text style={styles.captureEppBtnText}>
-                    Capturar Fotograma y Auditar EPPs (Rekognition)
+          {/* Fase 2: Resumen limpio del operario + único CTA primario + simulación oculta */}
+          {stage === "CAPTURE_EPP" && activeWorker && (
+            <View style={styles.eppPanel}>
+              <View style={styles.workerRow}>
+                <View style={styles.workerAvatar}>
+                  <Ionicons
+                    name="checkmark"
+                    size={18}
+                    color={colors.success}
+                  />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.workerName} numberOfLines={1}>
+                    {activeWorker.full_name}
                   </Text>
-                </>
-              )}
-            </Pressable>
-
-            {/* Botones discretos de simulación para pruebas en campo */}
-            <View style={styles.simRow}>
-              <Pressable
-                style={styles.simGreenBtn}
-                disabled={processing}
-                onPress={() => handleCaptureAndVerifyEpp("CON_EPP")}
-              >
-                <Text style={styles.simGreenText}>Simular EPPs OK</Text>
-              </Pressable>
-              <Pressable
-                style={styles.simRedBtn}
-                disabled={processing}
-                onPress={() => handleCaptureAndVerifyEpp("SIN_EPP")}
-              >
-                <Text style={styles.simRedText}>Simular Falta EPP</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {/* FASE 3: SEMÁFORO DE DECISIÓN (VERDE / ROJO) */}
-        {stage === "SEMAFORO_RESULT" && (
-          <View
-            style={[
-              styles.semaforoCard,
-              isGreen ? styles.semaforoGreen : styles.semaforoRed,
-            ]}
-          >
-            {/* Luces del semáforo industrial */}
-            <View style={styles.trafficHousing}>
-              <View
-                style={[
-                  styles.trafficLamp,
-                  !isGreen ? styles.lampRedOn : styles.lampOff,
-                ]}
-              />
-              <View
-                style={[
-                  styles.trafficLamp,
-                  isGreen ? styles.lampGreenOn : styles.lampOff,
-                ]}
-              />
-            </View>
-
-            <Text style={styles.semaforoStatusTitle}>
-              {isGreen ? "SEMÁFORO VERDE · PASE" : "SEMÁFORO ROJO · ALTO"}
-            </Text>
-
-            <Text style={styles.semaforoMessage}>
-              {eppResult?.message ||
-                qrRejectionMessage ||
-                "Acceso Denegado en Control de Garita."}
-            </Text>
-
-            {activeWorker && (
-              <View style={styles.semaforoWorkerBox}>
-                <Text style={styles.semaforoWorkerName}>
-                  {activeWorker.full_name}
-                </Text>
-                <Text style={styles.semaforoWorkerMeta}>
-                  DNI {activeWorker.dni} · Faltas EPP acumuladas:{" "}
-                  {activeWorker.faltas_epp_count}
-                </Text>
-              </View>
-            )}
-
-            {isOfflineMode && (
-              <View style={styles.offlineNoticeBadge}>
-                <Ionicons name="cloud-offline" size={14} color="#fcd34d" />
-                <Text style={styles.offlineNoticeText}>
-                  Evento encolado localmente (Store-and-Forward: {pendingCount} pendientes hacia AWS)
-                </Text>
-              </View>
-            )}
-
-            {/* Motivos de bloqueo en Fase 1 (QR no acreditado) */}
-            {qrRejectionReasons.length > 0 && (
-              <View style={styles.missingBox}>
-                <Text style={styles.missingTitle}>
-                  Requisitos de Acreditación Incumplidos:
-                </Text>
-                {qrRejectionReasons.map((reason, idx) => (
-                  <Text key={idx} style={styles.missingItem}>
-                    • {reason}
+                  <Text style={styles.workerMeta} numberOfLines={1}>
+                    DNI {activeWorker.dni} · {activeWorker.position}
                   </Text>
-                ))}
-              </View>
-            )}
-
-            {/* Lista exacta de EPPs faltantes devuelta por AWS Rekognition */}
-            {eppResult && eppResult.missing_epps.length > 0 && (
-              <View style={styles.missingBox}>
-                <Text style={styles.missingTitle}>
-                  EPPs Faltantes Detectados por Cámara IA:
-                </Text>
-                {eppResult.missing_epps.map((code) => (
-                  <View key={code} style={styles.missingRow}>
-                    <Ionicons name="warning" size={16} color="#fecaca" />
-                    <Text style={styles.missingItem}>
-                      {EPP_LABELS[code] || code}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {/* Lista de EPPs validados */}
-            {eppResult && eppResult.detected_epps.length > 0 && (
-              <View style={styles.detectedWrap}>
-                {eppResult.detected_epps.map((code) => (
-                  <View key={code} style={styles.detectedChip}>
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={14}
-                      color="#6ee7b7"
-                    />
-                    <Text style={styles.detectedChipText}>{code}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <View style={styles.resultActions}>
-              {activeWorker?.is_authorized && !isGreen && (
+                </View>
                 <Pressable
-                  style={styles.retryEppBtn}
-                  onPress={() => {
-                    setEppResult(null);
-                    setStage("CAPTURE_EPP");
-                  }}
+                  style={styles.resetIconBtn}
+                  onPress={resetGateFlow}
+                  accessibilityLabel="Volver a escanear QR"
                 >
-                  <Ionicons name="refresh" size={18} color="#f8fafc" />
-                  <Text style={styles.retryEppText}>Reintentar Cámara EPP</Text>
+                  <Ionicons
+                    name="close"
+                    size={18}
+                    color={colors.textSecondary}
+                  />
                 </Pressable>
-              )}
+              </View>
 
-              <Pressable style={styles.nextWorkerBtn} onPress={resetGateFlow}>
-                <Ionicons name="qr-code-outline" size={18} color="#020617" />
-                <Text style={styles.nextWorkerText}>
-                  Escanear Siguiente Operario
-                </Text>
+              <Pressable
+                style={[styles.primaryBtn, processing && styles.disabledBtn]}
+                onPress={() => handleCaptureAndVerifyEpp()}
+                disabled={processing}
+              >
+                {processing ? (
+                  <ActivityIndicator color={colors.onAccent} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="camera-outline"
+                      size={20}
+                      color={colors.onAccent}
+                    />
+                    <Text style={styles.primaryBtnText}>
+                      Capturar y verificar EPPs
+                    </Text>
+                  </>
+                )}
               </Pressable>
+
+              <CollapsibleTestTools title="Opciones de simulación">
+                <View style={styles.simRow}>
+                  <Pressable
+                    style={styles.simBtn}
+                    disabled={processing}
+                    onPress={() => handleCaptureAndVerifyEpp("CON_EPP")}
+                  >
+                    <Text style={styles.simBtnText}>Simular EPPs OK</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.simBtn}
+                    disabled={processing}
+                    onPress={() => handleCaptureAndVerifyEpp("SIN_EPP")}
+                  >
+                    <Text style={styles.simBtnText}>Simular Falta EPP</Text>
+                  </Pressable>
+                </View>
+              </CollapsibleTestTools>
             </View>
-          </View>
-        )}
-      </ScrollView>
+          )}
+
+          {/* Fase 3: Semáforo VERDE / ROJO extraído */}
+          {stage === "SEMAFORO_RESULT" && (
+            <GateTrafficLight
+              isGreen={isGreen}
+              activeWorker={activeWorker}
+              eppResult={eppResult}
+              qrRejectionMessage={qrRejectionMessage}
+              qrRejectionReasons={qrRejectionReasons}
+              isOfflineMode={isOfflineMode}
+              pendingCount={pendingCount}
+              onRetryEpp={() => {
+                setEppResult(null);
+                setStage("CAPTURE_EPP");
+              }}
+              onNextWorker={resetGateFlow}
+            />
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <GateConnectionModal
+        visible={connectionModalOpen}
+        onClose={() => setConnectionModalOpen(false)}
+        isOfflineMode={isOfflineMode}
+        wsOnline={wsOnline}
+        pendingCount={pendingCount}
+        cachedRosterCount={cachedRoster.length}
+        isUpdatingRoster={isUpdatingRoster}
+        isSyncing={isSyncing}
+        onToggleOfflineMode={handleToggleOfflineMode}
+        onDownloadRoster={handleDownloadRoster}
+        onSyncWithAws={handleSyncWithAws}
+      />
     </SafeAreaView>
   );
 }
@@ -924,110 +842,142 @@ export function GateScannerScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#020617",
+    backgroundColor: colors.canvas,
   },
   flex: {
     flex: 1,
   },
   centered: {
     flex: 1,
-    backgroundColor: "#020617",
+    backgroundColor: colors.canvas,
     alignItems: "center",
     justifyContent: "center",
-    padding: 26,
-    gap: 12,
+    padding: 28,
+    gap: spacing.md,
+  },
+  permIconBox: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
   permTitle: {
-    color: "#f8fafc",
-    fontSize: 20,
+    color: colors.textPrimary,
+    fontSize: 19,
     fontWeight: "800",
     textAlign: "center",
   },
   permDesc: {
-    color: "#94a3b8",
+    color: colors.textSecondary,
     fontSize: 13,
     textAlign: "center",
-    lineHeight: 19,
+    lineHeight: 20,
   },
   permBtn: {
-    marginTop: 8,
-    backgroundColor: "#38bdf8",
-    paddingHorizontal: 20,
+    marginTop: spacing.sm,
+    backgroundColor: colors.accent,
+    paddingHorizontal: 22,
     paddingVertical: 13,
-    borderRadius: 14,
+    borderRadius: radius.md,
   },
   permBtnText: {
-    color: "#020617",
-    fontWeight: "800",
+    color: colors.onAccent,
+    fontWeight: "700",
     fontSize: 14,
   },
   container: {
-    padding: 16,
-    paddingBottom: 34,
-    gap: 14,
+    padding: spacing.lg,
+    paddingBottom: 28,
+    gap: spacing.md,
   },
-  statusRow: {
+  topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: spacing.sm,
   },
-  stageTabs: {
-    flexDirection: "row",
-    gap: 6,
-  },
-  stagePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: "#0f172a",
-    borderWidth: 1,
-    borderColor: "#1e293b",
-  },
-  stagePillActiveBlue: {
-    backgroundColor: "#0369a1",
-    borderColor: "#38bdf8",
-  },
-  stagePillActiveAmber: {
-    backgroundColor: "#b45309",
-    borderColor: "#f59e0b",
-  },
-  stagePillActiveEmerald: {
-    backgroundColor: "#047857",
-    borderColor: "#34d399",
-  },
-  stagePillText: {
-    color: "#f8fafc",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  wsBadge: {
+  stepStrip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#0f172a",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#1e293b",
+    flexShrink: 1,
   },
-  wsDot: {
-    width: 8,
-    height: 8,
+  stepText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  stepTextActive: {
+    color: colors.accentText,
+    fontWeight: "800",
+  },
+  stepDot: {
+    color: colors.borderStrong,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+  },
+  statusPillWarning: {
+    backgroundColor: colors.warningSoft,
+    borderColor: colors.warningBorder,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
     borderRadius: 4,
   },
-  wsText: {
-    color: "#cbd5e1",
+  statusPillText: {
+    color: colors.textPrimary,
     fontSize: 11,
     fontWeight: "700",
   },
+  statusPillTextWarning: {
+    color: colors.warningText,
+  },
+  warningBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.warningSoft,
+    borderWidth: 1,
+    borderColor: colors.warningBorder,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+  },
+  warningBannerText: {
+    flex: 1,
+    color: colors.warningText,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  warningBannerAction: {
+    color: colors.warningText,
+    fontSize: 12,
+    fontWeight: "800",
+    textDecorationLine: "underline",
+  },
   cameraBox: {
     height: 360,
-    borderRadius: 24,
+    borderRadius: radius.xl,
     overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "#1e293b",
-    backgroundColor: "#000",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.cameraBg,
   },
   cameraView: {
     position: "absolute",
@@ -1045,421 +995,159 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: spacing.sm,
   },
   cameraHudBadge: {
-    backgroundColor: "rgba(2, 6, 23, 0.78)",
-    color: "#f8fafc",
-    fontSize: 11,
-    fontWeight: "800",
+    backgroundColor: colors.cameraOverlay,
+    color: colors.onDark,
+    fontSize: 12,
+    fontWeight: "700",
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     overflow: "hidden",
   },
   flipBtn: {
-    backgroundColor: "rgba(2, 6, 23, 0.78)",
-    padding: 8,
-    borderRadius: 999,
+    backgroundColor: colors.cameraOverlay,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
   reticle: {
     alignSelf: "center",
-    width: 210,
-    height: 210,
-    borderRadius: 24,
-    borderWidth: 3,
-    borderColor: "#38bdf8",
+    width: 204,
+    height: 204,
+    borderRadius: radius.xl,
+    borderWidth: 2,
+    borderColor: "rgba(255, 255, 255, 0.9)",
   },
   reticleEpp: {
     width: "86%",
-    height: 230,
-    borderColor: "#f59e0b",
+    height: 224,
+    borderColor: "rgba(255, 255, 255, 0.9)",
   },
   cameraBottomHint: {
     alignSelf: "center",
-    backgroundColor: "rgba(2, 6, 23, 0.78)",
-    color: "#cbd5e1",
-    fontSize: 11,
+    backgroundColor: colors.cameraOverlay,
+    color: colors.onDark,
+    fontSize: 12,
     fontWeight: "600",
     paddingHorizontal: 12,
     paddingVertical: 5,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     overflow: "hidden",
   },
-  card: {
-    backgroundColor: "#0f172a",
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#1e293b",
-    gap: 12,
-  },
-  cardTitle: {
-    color: "#cbd5e1",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  manualRow: {
+  manualCard: {
     flexDirection: "row",
-    gap: 8,
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
   },
   manualInput: {
     flex: 1,
-    backgroundColor: "#020617",
+    backgroundColor: colors.canvas,
     borderWidth: 1,
-    borderColor: "#334155",
-    borderRadius: 12,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: "#f8fafc",
+    color: colors.textPrimary,
     fontSize: 14,
   },
   manualBtn: {
-    backgroundColor: "#38bdf8",
+    backgroundColor: colors.accent,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: 11,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
   },
   manualBtnText: {
-    color: "#020617",
-    fontWeight: "800",
+    color: colors.onAccent,
+    fontWeight: "700",
     fontSize: 13,
   },
-  workerBanner: {
+  eppPanel: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  workerRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: "#020617",
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#10b98144",
   },
-  workerBannerName: {
-    color: "#f8fafc",
+  workerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.successSoft,
+    borderWidth: 1,
+    borderColor: colors.successBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workerName: {
+    color: colors.textPrimary,
     fontSize: 15,
     fontWeight: "800",
   },
-  workerBannerMeta: {
-    color: "#94a3b8",
+  workerMeta: {
+    color: colors.textSecondary,
     fontSize: 12,
+    marginTop: 1,
   },
-  captureEppBtn: {
-    backgroundColor: "#f59e0b",
-    borderRadius: 14,
-    paddingVertical: 15,
-    paddingHorizontal: 14,
+  resetIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.lg,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: spacing.sm,
   },
   disabledBtn: {
     opacity: 0.55,
   },
-  captureEppBtnText: {
-    color: "#020617",
-    fontSize: 14,
-    fontWeight: "900",
+  primaryBtnText: {
+    color: colors.onAccent,
+    fontSize: 15,
+    fontWeight: "700",
   },
   simRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: spacing.sm,
   },
-  simGreenBtn: {
+  simBtn: {
     flex: 1,
-    backgroundColor: "#064e3b",
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: "center",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#10b98155",
+    borderColor: colors.borderStrong,
+    paddingVertical: 9,
+    borderRadius: radius.sm,
+    alignItems: "center",
   },
-  simGreenText: {
-    color: "#6ee7b7",
+  simBtnText: {
+    color: colors.textSecondary,
     fontSize: 12,
-    fontWeight: "700",
-  },
-  simRedBtn: {
-    flex: 1,
-    backgroundColor: "#450a0a",
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#ef444455",
-  },
-  simRedText: {
-    color: "#fca5a5",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  semaforoCard: {
-    borderRadius: 24,
-    padding: 20,
-    borderWidth: 2,
-    alignItems: "center",
-    gap: 14,
-  },
-  semaforoGreen: {
-    backgroundColor: "#042f2e",
-    borderColor: "#10b981",
-  },
-  semaforoRed: {
-    backgroundColor: "#450a0a",
-    borderColor: "#ef4444",
-  },
-  trafficHousing: {
-    flexDirection: "row",
-    gap: 16,
-    backgroundColor: "#020617",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#334155",
-  },
-  trafficLamp: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-  },
-  lampRedOn: {
-    backgroundColor: "#ef4444",
-  },
-  lampGreenOn: {
-    backgroundColor: "#10b981",
-  },
-  lampOff: {
-    backgroundColor: "#1e293b",
-  },
-  semaforoStatusTitle: {
-    color: "#ffffff",
-    fontSize: 22,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  semaforoMessage: {
-    color: "#f1f5f9",
-    fontSize: 14,
     fontWeight: "600",
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  semaforoWorkerBox: {
-    width: "100%",
-    backgroundColor: "rgba(2, 6, 23, 0.55)",
-    borderRadius: 14,
-    padding: 12,
-    alignItems: "center",
-  },
-  semaforoWorkerName: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  semaforoWorkerMeta: {
-    color: "#cbd5e1",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  missingBox: {
-    width: "100%",
-    backgroundColor: "rgba(2, 6, 23, 0.65)",
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#f8717166",
-    gap: 6,
-  },
-  missingTitle: {
-    color: "#fecaca",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  missingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  missingItem: {
-    color: "#fee2e2",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  detectedWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 6,
-  },
-  detectedChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(6, 78, 59, 0.8)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  detectedChipText: {
-    color: "#d1fae5",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  resultActions: {
-    width: "100%",
-    gap: 10,
-    marginTop: 4,
-  },
-  retryEppBtn: {
-    backgroundColor: "#1e293b",
-    borderRadius: 14,
-    paddingVertical: 13,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  retryEppText: {
-    color: "#f8fafc",
-    fontWeight: "800",
-    fontSize: 14,
-  },
-  nextWorkerBtn: {
-    backgroundColor: "#f8fafc",
-    borderRadius: 14,
-    paddingVertical: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  nextWorkerText: {
-    color: "#020617",
-    fontWeight: "900",
-    fontSize: 14,
-  },
-  offlineCard: {
-    backgroundColor: "#0b1329",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#1e293b",
-    padding: 12,
-    gap: 10,
-  },
-  offlineHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  offlineTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  offlineTitleText: {
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  offlineToggleBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  offlineToggleBtnActive: {
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
-    borderColor: "#f59e0b",
-  },
-  offlineToggleBtnInactive: {
-    backgroundColor: "rgba(30, 41, 59, 0.8)",
-    borderColor: "#334155",
-  },
-  offlineToggleText: {
-    color: "#f8fafc",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  queueStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(15, 23, 42, 0.8)",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
-  queueCountText: {
-    color: "#94a3b8",
-    fontSize: 11,
-    fontWeight: "600",
-    flex: 1,
-  },
-  queueCountTextHighlight: {
-    color: "#fcd34d",
-    fontWeight: "700",
-  },
-  offlineActionsRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  rosterDownloadBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: "#0f172a",
-    borderWidth: 1,
-    borderColor: "#38bdf8",
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-  },
-  rosterDownloadText: {
-    color: "#38bdf8",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  syncAwsBtn: {
-    flex: 1.5,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-  },
-  syncAwsBtnActive: {
-    backgroundColor: "#059669",
-  },
-  syncAwsBtnDisabled: {
-    backgroundColor: "#334155",
-    opacity: 0.5,
-  },
-  syncAwsText: {
-    color: "#ffffff",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  offlineNoticeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(245, 158, 11, 0.2)",
-    borderColor: "#f59e0b",
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    marginTop: 6,
-  },
-  offlineNoticeText: {
-    color: "#fef3c7",
-    fontSize: 12,
-    fontWeight: "700",
-    textAlign: "center",
   },
 });

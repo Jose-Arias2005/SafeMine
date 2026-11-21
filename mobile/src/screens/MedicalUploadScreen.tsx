@@ -15,8 +15,11 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
+import { CollapsibleTestTools } from "../components/CollapsibleTestTools";
+import { StepHeader } from "../components/StepHeader";
 import { useAuth } from "../context/AuthContext";
 import { trabajadorService } from "../services/trabajadorService";
+import { colors, radius, spacing } from "../theme/tokens";
 import {
   MedicalAuditResult,
   NativeUploadAsset,
@@ -164,8 +167,8 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
 
       if (res.worker.is_authorized) {
         Alert.alert(
-          "¡Certificado EMO Validado (APTO)!",
-          "Google Gemini auditó tu constancia médica con éxito. Tu Fotocheck QR ya está activo y guardado offline.",
+          "Certificado EMO validado (APTO)",
+          "Tu constancia médica fue aprobada. Tu Fotocheck QR ya está disponible incluso sin conexión.",
           [
             {
               text: "Ver mi Fotocheck QR",
@@ -189,59 +192,120 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
 
   const isImagePreview =
     selectedAsset && selectedAsset.mimeType.startsWith("image/");
+  const isAuthorized = Boolean(worker?.is_authorized);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.container}>
+        <StepHeader currentStep={2} />
+
+        {/* Introducción */}
         <View style={styles.headerCard}>
-          <View style={styles.stepPill}>
-            <Text style={styles.stepPillText}>
-              PASO 2 DE 2 · AUDITORÍA IA (GEMINI)
-            </Text>
-          </View>
-          <Text style={styles.title}>Certificado Médico Ocupacional (EMO)</Text>
+          <Text style={styles.title}>Certificado Médico Ocupacional</Text>
           <Text style={styles.subtitle}>
-            Fotografía o adjunta tu Anexo 16 (DS 024-2016-EM). Google Gemini
-            verificará autenticidad, identidad y aptitud médica{" "}
-            <Text style={styles.boldEmerald}>APTO</Text>.
+            Fotografía o adjunta tu Anexo 16 (DS 024-2016-EM) en PDF o imagen
+            para validar tu aptitud médica.
           </Text>
         </View>
 
-        {/* Disparadores: Cámara Nativa expo-camera + Selector de archivo */}
-        <View style={styles.captureRow}>
-          <Pressable style={styles.cameraTriggerBtn} onPress={openNativeCamera}>
-            <Ionicons name="camera" size={26} color="#020617" />
-            <Text style={styles.cameraTriggerTitle}>Capturar con Cámara</Text>
-            <Text style={styles.cameraTriggerSub}>Foto directa al EMO</Text>
-          </Pressable>
+        {/* Estado ya autorizado */}
+        {isAuthorized && !selectedAsset && (
+          <View style={styles.authorizedCard}>
+            <View style={styles.authorizedHeader}>
+              <Ionicons
+                name="checkmark-circle"
+                size={22}
+                color={colors.success}
+              />
+              <Text style={styles.authorizedTitle}>
+                Certificado EMO validado (APTO)
+              </Text>
+            </View>
+            <Text style={styles.authorizedDesc}>
+              Tu acreditación está completa. Ya puedes abrir tu Fotocheck QR.
+            </Text>
+            <Pressable
+              style={styles.primaryBtn}
+              onPress={() =>
+                navigation.navigate("DigitalBadge", { offlineMode: false })
+              }
+            >
+              <Ionicons name="qr-code" size={18} color={colors.onAccent} />
+              <Text style={styles.primaryBtnText}>
+                Abrir mi Fotocheck QR
+              </Text>
+            </Pressable>
+          </View>
+        )}
 
-          <Pressable
-            style={styles.fileTriggerBtn}
-            onPress={handlePickDocument}
-          >
-            <Ionicons name="document-attach-outline" size={26} color="#38bdf8" />
-            <Text style={styles.fileTriggerTitle}>Elegir Archivo</Text>
-            <Text style={styles.fileTriggerSub}>PDF o Imagen</Text>
-          </Pressable>
-        </View>
+        {/* Estado A: Sin documento adjunto -> opciones claras de captura */}
+        {!selectedAsset ? (
+          <View style={styles.captureCard}>
+            <Text style={styles.sectionLabel}>
+              {isAuthorized
+                ? "ACTUALIZAR DOCUMENTO (OPCIONAL)"
+                : "ADJUNTA TU CONSTANCIA EMO"}
+            </Text>
 
-        {/* Vista previa del archivo seleccionado */}
-        {selectedAsset && (
+            <Pressable
+              style={isAuthorized ? styles.secondaryBtn : styles.primaryBtn}
+              onPress={openNativeCamera}
+            >
+              <Ionicons
+                name="camera-outline"
+                size={20}
+                color={isAuthorized ? colors.textPrimary : colors.onAccent}
+              />
+              <Text
+                style={
+                  isAuthorized
+                    ? styles.secondaryBtnText
+                    : styles.primaryBtnText
+                }
+              >
+                Tomar foto con cámara
+              </Text>
+            </Pressable>
+
+            <Pressable style={styles.secondaryBtn} onPress={handlePickDocument}>
+              <Ionicons
+                name="document-attach-outline"
+                size={20}
+                color={colors.textPrimary}
+              />
+              <Text style={styles.secondaryBtnText}>
+                Elegir archivo (PDF o imagen)
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          /* Estado B: Documento adjunto -> vista previa + único CTA primario */
           <View style={styles.previewCard}>
             <View style={styles.previewHeader}>
-              <Ionicons
-                name={isImagePreview ? "image-outline" : "document-text-outline"}
-                size={20}
-                color="#f59e0b"
-              />
+              <View style={styles.previewIconBox}>
+                <Ionicons
+                  name={
+                    isImagePreview ? "image-outline" : "document-text-outline"
+                  }
+                  size={20}
+                  color={colors.textSecondary}
+                />
+              </View>
               <View style={styles.flex}>
                 <Text style={styles.previewName} numberOfLines={1}>
                   {selectedAsset.name}
                 </Text>
                 <Text style={styles.previewMime}>{selectedAsset.mimeType}</Text>
               </View>
-              <Pressable onPress={() => setSelectedAsset(null)}>
-                <Ionicons name="close-circle" size={22} color="#94a3b8" />
+              <Pressable
+                onPress={() => setSelectedAsset(null)}
+                accessibilityLabel="Quitar archivo"
+              >
+                <Ionicons
+                  name="close-circle-outline"
+                  size={22}
+                  color={colors.textMuted}
+                />
               </Pressable>
             </View>
 
@@ -252,18 +316,118 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
                 resizeMode="cover"
               />
             )}
+
+            <View style={styles.replaceRow}>
+              <Pressable style={styles.replaceLink} onPress={openNativeCamera}>
+                <Ionicons
+                  name="camera-outline"
+                  size={15}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.replaceLinkText}>Tomar otra foto</Text>
+              </Pressable>
+              <Pressable
+                style={styles.replaceLink}
+                onPress={handlePickDocument}
+              >
+                <Ionicons
+                  name="document-outline"
+                  size={15}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.replaceLinkText}>Cambiar archivo</Text>
+              </Pressable>
+            </View>
+
+            {isAuthorized && auditFeedback?.valid ? (
+              <Pressable
+                style={styles.primaryBtn}
+                onPress={() =>
+                  navigation.navigate("DigitalBadge", { offlineMode: false })
+                }
+              >
+                <Ionicons name="qr-code" size={18} color={colors.onAccent} />
+                <Text style={styles.primaryBtnText}>
+                  Abrir mi Fotocheck QR
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.primaryBtn, uploading && styles.disabledBtn]}
+                onPress={handleUploadToGemini}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <ActivityIndicator color={colors.onAccent} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="shield-checkmark-outline"
+                      size={18}
+                      color={colors.onAccent}
+                    />
+                    <Text style={styles.primaryBtnText}>
+                      Validar certificado EMO
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            )}
           </View>
         )}
 
-        {/* Selector discreto de escenario IA (útil para demostración con USE_MOCK_AI) */}
-        <View style={styles.modeCard}>
-          <Text style={styles.modeTitle}>Modo de Evaluación IA (Demo / Cloud)</Text>
+        {/* Dictamen estructurado */}
+        {auditFeedback && (
+          <View
+            style={[
+              styles.verdictCard,
+              auditFeedback.valid ? styles.verdictOk : styles.verdictRejected,
+            ]}
+          >
+            <View style={styles.verdictHeader}>
+              <Ionicons
+                name={
+                  auditFeedback.valid ? "checkmark-circle" : "close-circle"
+                }
+                size={22}
+                color={auditFeedback.valid ? colors.success : colors.danger}
+              />
+              <Text
+                style={[
+                  styles.verdictTitle,
+                  {
+                    color: auditFeedback.valid
+                      ? colors.successText
+                      : colors.dangerText,
+                  },
+                ]}
+              >
+                Resultado:{" "}
+                {auditFeedback.audit?.aptitude_result ||
+                  (auditFeedback.valid ? "APTO" : "RECHAZADO")}
+              </Text>
+            </View>
+            <Text style={styles.verdictSummary}>{auditFeedback.summary}</Text>
+            {auditFeedback.audit && (
+              <Text style={styles.verdictConfidence}>
+                Confianza de lectura:{" "}
+                {Math.round((auditFeedback.audit.confidence_score || 0) * 100)}%
+              </Text>
+            )}
+          </View>
+        )}
+
+        {/* Selector de prueba oculto por defecto */}
+        <CollapsibleTestTools title="Opciones de prueba (Evaluación IA)">
+          <Text style={styles.testHint}>
+            Selecciona el modo de respuesta del backend para pruebas:
+          </Text>
           <View style={styles.modePills}>
             {(
               [
-                { id: "auto", label: "Auto Gemini" },
-                { id: "mock_apto", label: "Demo: APTO" },
-                { id: "mock_rechazado", label: "Demo: Rechazar" },
+                { id: "auto", label: "Automático" },
+                { id: "mock_apto", label: "Simular APTO" },
+                { id: "mock_rechazado", label: "Simular Rechazo" },
               ] as const
             ).map((item) => {
               const active = mockBehavior === item.id;
@@ -285,75 +449,7 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
               );
             })}
           </View>
-        </View>
-
-        {/* Botón de envío multipart/form-data */}
-        <Pressable
-          style={[
-            styles.uploadBtn,
-            (!selectedAsset || uploading) && styles.disabledBtn,
-          ]}
-          onPress={handleUploadToGemini}
-          disabled={!selectedAsset || uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator color="#020617" />
-          ) : (
-            <>
-              <Ionicons name="sparkles" size={18} color="#020617" />
-              <Text style={styles.uploadBtnText}>
-                Auditar Certificado con Google Gemini
-              </Text>
-            </>
-          )}
-        </Pressable>
-
-        {/* Dictamen estructurado de Gemini */}
-        {auditFeedback && (
-          <View
-            style={[
-              styles.verdictCard,
-              auditFeedback.valid ? styles.verdictOk : styles.verdictRejected,
-            ]}
-          >
-            <View style={styles.verdictHeader}>
-              <Ionicons
-                name={
-                  auditFeedback.valid ? "shield-checkmark" : "close-circle"
-                }
-                size={24}
-                color={auditFeedback.valid ? "#34d399" : "#f87171"}
-              />
-              <Text style={styles.verdictTitle}>
-                Dictamen IA:{" "}
-                {auditFeedback.audit?.aptitude_result ||
-                  (auditFeedback.valid ? "APTO" : "RECHAZADO")}
-              </Text>
-            </View>
-            <Text style={styles.verdictSummary}>{auditFeedback.summary}</Text>
-            {auditFeedback.audit && (
-              <Text style={styles.verdictConfidence}>
-                Confianza del modelo:{" "}
-                {Math.round((auditFeedback.audit.confidence_score || 0) * 100)}%
-              </Text>
-            )}
-          </View>
-        )}
-
-        {/* Acceso al Fotocheck QR si el operario ya está autorizado */}
-        {worker?.is_authorized && (
-          <Pressable
-            style={styles.badgeBtn}
-            onPress={() =>
-              navigation.navigate("DigitalBadge", { offlineMode: false })
-            }
-          >
-            <Ionicons name="qr-code" size={20} color="#ecfdf5" />
-            <Text style={styles.badgeBtnText}>
-              Abrir mi Fotocheck QR Autorizado
-            </Text>
-          </Pressable>
-        )}
+        </CollapsibleTestTools>
       </ScrollView>
 
       {/* Visor de Cámara Nativa expo-camera a pantalla completa */}
@@ -371,13 +467,14 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
           <SafeAreaView style={styles.cameraOverlay}>
             <View style={styles.cameraTopBar}>
               <Text style={styles.cameraGuideTitle}>
-                Encuadra el Certificado Médico EMO
+                Encuadra tu Certificado Médico EMO
               </Text>
               <Pressable
                 style={styles.cameraCloseBtn}
                 onPress={() => setCameraModalVisible(false)}
+                accessibilityLabel="Cerrar cámara"
               >
-                <Ionicons name="close" size={24} color="#f8fafc" />
+                <Ionicons name="close" size={24} color={colors.onDark} />
               </Pressable>
             </View>
 
@@ -388,9 +485,10 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
                 style={styles.shutterOuter}
                 onPress={handleCapturePhoto}
                 disabled={capturing}
+                accessibilityLabel="Tomar fotografía"
               >
                 {capturing ? (
-                  <ActivityIndicator color="#020617" />
+                  <ActivityIndicator color={colors.textPrimary} />
                 ) : (
                   <View style={styles.shutterInner} />
                 )}
@@ -406,229 +504,232 @@ export function MedicalUploadScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#020617",
+    backgroundColor: colors.canvas,
   },
   flex: {
     flex: 1,
   },
   container: {
-    padding: 18,
+    padding: spacing.lg,
     paddingBottom: 36,
-    gap: 16,
+    gap: 14,
   },
   headerCard: {
-    backgroundColor: "#0f172a",
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     borderWidth: 1,
-    borderColor: "#1e293b",
-    gap: 8,
-  },
-  stepPill: {
-    alignSelf: "flex-start",
-    backgroundColor: "#38bdf822",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#38bdf866",
-  },
-  stepPillText: {
-    color: "#7dd3fc",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
+    borderColor: colors.border,
+    gap: 6,
   },
   title: {
-    color: "#f8fafc",
-    fontSize: 19,
+    color: colors.textPrimary,
+    fontSize: 18,
     fontWeight: "800",
   },
   subtitle: {
-    color: "#94a3b8",
+    color: colors.textSecondary,
     fontSize: 13,
     lineHeight: 19,
   },
-  boldEmerald: {
-    color: "#34d399",
-    fontWeight: "800",
+  authorizedCard: {
+    backgroundColor: colors.successSoft,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.successBorder,
+    gap: spacing.sm,
   },
-  captureRow: {
+  authorizedHeader: {
     flexDirection: "row",
-    gap: 12,
-  },
-  cameraTriggerBtn: {
-    flex: 1,
-    backgroundColor: "#f59e0b",
-    borderRadius: 18,
-    padding: 16,
     alignItems: "center",
-    gap: 6,
+    gap: spacing.sm,
   },
-  cameraTriggerTitle: {
-    color: "#020617",
-    fontSize: 14,
+  authorizedTitle: {
+    color: colors.successText,
+    fontSize: 15,
     fontWeight: "800",
   },
-  cameraTriggerSub: {
-    color: "#451a03",
+  authorizedDesc: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  captureCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 10,
+  },
+  sectionLabel: {
+    color: colors.textMuted,
     fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  primaryBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  primaryBtnText: {
+    color: colors.onAccent,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  secondaryBtn: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingVertical: 13,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  secondaryBtnText: {
+    color: colors.textPrimary,
+    fontSize: 14,
     fontWeight: "600",
   },
-  fileTriggerBtn: {
-    flex: 1,
-    backgroundColor: "#0f172a",
-    borderRadius: 18,
-    padding: 16,
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "#38bdf855",
-  },
-  fileTriggerTitle: {
-    color: "#f0f9ff",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  fileTriggerSub: {
-    color: "#7dd3fc",
-    fontSize: 11,
+  disabledBtn: {
+    opacity: 0.6,
   },
   previewCard: {
-    backgroundColor: "#0f172a",
-    borderRadius: 16,
-    padding: 14,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     borderWidth: 1,
-    borderColor: "#334155",
-    gap: 12,
+    borderColor: colors.border,
+    gap: spacing.md,
   },
   previewHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
+  previewIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   previewName: {
-    color: "#f8fafc",
+    color: colors.textPrimary,
     fontSize: 13,
     fontWeight: "700",
   },
   previewMime: {
-    color: "#94a3b8",
+    color: colors.textMuted,
     fontSize: 11,
+    marginTop: 1,
   },
   previewImage: {
     width: "100%",
-    height: 210,
-    borderRadius: 12,
-    backgroundColor: "#020617",
-  },
-  modeCard: {
-    backgroundColor: "#0f172a",
-    borderRadius: 16,
-    padding: 14,
+    height: 220,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: "#1e293b",
-    gap: 10,
+    borderColor: colors.border,
   },
-  modeTitle: {
-    color: "#94a3b8",
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  modePills: {
+  replaceRow: {
     flexDirection: "row",
-    gap: 8,
+    justifyContent: "space-between",
+    gap: spacing.sm,
   },
-  modePill: {
+  replaceLink: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: "#020617",
-    borderWidth: 1,
-    borderColor: "#1e293b",
-    alignItems: "center",
-  },
-  modePillActive: {
-    borderColor: "#f59e0b",
-    backgroundColor: "#f59e0b22",
-  },
-  modePillText: {
-    color: "#94a3b8",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  modePillTextActive: {
-    color: "#fbbf24",
-  },
-  uploadBtn: {
-    backgroundColor: "#f59e0b",
-    borderRadius: 14,
-    paddingVertical: 15,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceMuted,
   },
-  disabledBtn: {
-    opacity: 0.5,
-  },
-  uploadBtnText: {
-    color: "#020617",
-    fontSize: 15,
-    fontWeight: "800",
+  replaceLinkText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
   },
   verdictCard: {
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     borderWidth: 1,
-    gap: 8,
+    gap: 6,
   },
   verdictOk: {
-    backgroundColor: "#064e3b88",
-    borderColor: "#10b981",
+    backgroundColor: colors.successSoft,
+    borderColor: colors.successBorder,
   },
   verdictRejected: {
-    backgroundColor: "#450a0a88",
-    borderColor: "#ef4444",
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.dangerBorder,
   },
   verdictHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: spacing.sm,
   },
   verdictTitle: {
-    color: "#f8fafc",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
   },
   verdictSummary: {
-    color: "#e2e8f0",
+    color: colors.textPrimary,
     fontSize: 13,
     lineHeight: 19,
   },
   verdictConfidence: {
-    color: "#94a3b8",
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: "600",
   },
-  badgeBtn: {
-    backgroundColor: "#059669",
-    borderRadius: 14,
-    paddingVertical: 15,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+  testHint: {
+    color: colors.textMuted,
+    fontSize: 12,
   },
-  badgeBtnText: {
-    color: "#ecfdf5",
-    fontSize: 15,
-    fontWeight: "800",
+  modePills: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  modePill: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    alignItems: "center",
+  },
+  modePillActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  modePillText: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  modePillTextActive: {
+    color: colors.accentText,
+    fontWeight: "700",
   },
   cameraContainer: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: colors.cameraBg,
   },
   cameraPreview: {
     position: "absolute",
@@ -640,19 +741,19 @@ const styles = StyleSheet.create({
   cameraOverlay: {
     flex: 1,
     justifyContent: "space-between",
-    padding: 20,
+    padding: spacing.xl,
   },
   cameraTopBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "rgba(2, 6, 23, 0.7)",
+    backgroundColor: colors.cameraOverlay,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 14,
+    borderRadius: radius.md,
   },
   cameraGuideTitle: {
-    color: "#f8fafc",
+    color: colors.onDark,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -664,21 +765,21 @@ const styles = StyleSheet.create({
     width: "88%",
     height: "58%",
     borderWidth: 2,
-    borderColor: "#f59e0b",
-    borderRadius: 18,
+    borderColor: "rgba(255, 255, 255, 0.9)",
+    borderRadius: radius.lg,
     backgroundColor: "transparent",
   },
   cameraBottomBar: {
     alignItems: "center",
-    paddingBottom: 16,
+    paddingBottom: spacing.lg,
   },
   shutterOuter: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
-    backgroundColor: "#f8fafc",
-    borderWidth: 5,
-    borderColor: "#f59e0b",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    borderWidth: 3,
+    borderColor: colors.onDark,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -686,6 +787,6 @@ const styles = StyleSheet.create({
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: "#f59e0b",
+    backgroundColor: colors.onDark,
   },
 });

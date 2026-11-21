@@ -1,6 +1,6 @@
 import React from "react";
 import { StatusBar } from "expo-status-bar";
-import { NavigationContainer, DarkTheme } from "@react-navigation/native";
+import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "./src/context/AuthContext";
@@ -9,19 +9,20 @@ import { InductionQuizScreen } from "./src/screens/InductionQuizScreen";
 import { MedicalUploadScreen } from "./src/screens/MedicalUploadScreen";
 import { DigitalBadgeScreen } from "./src/screens/DigitalBadgeScreen";
 import { GateScannerScreen } from "./src/screens/GateScannerScreen";
+import { colors } from "./src/theme/tokens";
 import { RootStackParamList } from "./src/types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const SafeMineTheme = {
-  ...DarkTheme,
+  ...DefaultTheme,
   colors: {
-    ...DarkTheme.colors,
-    background: "#020617",
-    card: "#0f172a",
-    text: "#f8fafc",
-    border: "#1e293b",
-    primary: "#f59e0b",
+    ...DefaultTheme.colors,
+    background: colors.canvas,
+    card: colors.surface,
+    text: colors.textPrimary,
+    border: colors.border,
+    primary: colors.accent,
   },
 };
 
@@ -30,14 +31,19 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <NavigationContainer theme={SafeMineTheme}>
-          <StatusBar style="light" />
+          <StatusBar style="dark" />
           <Stack.Navigator
             initialRouteName="Login"
             screenOptions={{
-              headerStyle: { backgroundColor: "#0f172a" },
-              headerTintColor: "#f8fafc",
-              headerTitleStyle: { fontWeight: "800", fontSize: 16 },
-              contentStyle: { backgroundColor: "#020617" },
+              headerStyle: { backgroundColor: colors.surface },
+              headerTintColor: colors.textPrimary,
+              headerTitleStyle: {
+                fontWeight: "700",
+                fontSize: 16,
+                color: colors.textPrimary,
+              },
+              headerShadowVisible: false,
+              contentStyle: { backgroundColor: colors.canvas },
             }}
           >
             <Stack.Screen
@@ -48,22 +54,22 @@ export default function App() {
             <Stack.Screen
               name="InductionQuiz"
               component={InductionQuizScreen}
-              options={{ title: "Paso 1 · Inducción IPERC" }}
+              options={{ title: "Inducción IPERC" }}
             />
             <Stack.Screen
               name="MedicalUpload"
               component={MedicalUploadScreen}
-              options={{ title: "Paso 2 · Auditoría EMO IA" }}
+              options={{ title: "Certificado EMO" }}
             />
             <Stack.Screen
               name="DigitalBadge"
               component={DigitalBadgeScreen}
-              options={{ title: "Fotocheck QR Minero" }}
+              options={{ title: "Fotocheck QR" }}
             />
             <Stack.Screen
               name="GateScanner"
               component={GateScannerScreen}
-              options={{ title: "Modo Garita · Escáner IA" }}
+              options={{ title: "Modo Garita" }}
             />
           </Stack.Navigator>
         </NavigationContainer>

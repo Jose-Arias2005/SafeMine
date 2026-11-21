@@ -11,8 +11,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
+import { CollapsibleTestTools } from "../components/CollapsibleTestTools";
+import { StepHeader } from "../components/StepHeader";
 import { useAuth } from "../context/AuthContext";
 import { trabajadorService } from "../services/trabajadorService";
+import { colors, radius, spacing } from "../theme/tokens";
 import { ExamQuestion, RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "InductionQuiz">;
@@ -131,11 +134,11 @@ export function InductionQuizScreen({ navigation, route }: Props) {
 
       if (res.passed) {
         Alert.alert(
-          `¡Inducción Aprobada (${res.score}%)!`,
-          "Has superado el mínimo exigido (80%). Se ha desbloqueado el Paso 2: Auditoría de Certificado Médico EMO.",
+          `Inducción aprobada (${res.score}%)`,
+          "Superaste la nota mínima (80%). Ya puedes continuar al Paso 2: Certificado Médico EMO.",
           [
             {
-              text: "Continuar al Paso 2 (EMO)",
+              text: "Continuar al Paso 2",
               onPress: () =>
                 navigation.navigate("MedicalUpload", { workerId }),
             },
@@ -144,7 +147,7 @@ export function InductionQuizScreen({ navigation, route }: Props) {
       } else {
         Alert.alert(
           `Nota insuficiente (${res.score}%)`,
-          "Se requiere al menos 80% para desbloquear el paso médico. Revisa tus respuestas e inténtalo nuevamente."
+          "Se requiere al menos 80% para pasar al certificado médico. Revisa tus respuestas e inténtalo nuevamente."
         );
       }
     } catch (err) {
@@ -162,7 +165,7 @@ export function InductionQuizScreen({ navigation, route }: Props) {
     if (missing) {
       Alert.alert(
         "Preguntas pendientes",
-        "Debes responder todas las preguntas de seguridad minera antes de enviar."
+        "Responde todas las preguntas de seguridad minera antes de enviar."
       );
       return;
     }
@@ -185,6 +188,8 @@ export function InductionQuizScreen({ navigation, route }: Props) {
   };
 
   const answeredCount = Object.keys(selectedAnswers).length;
+  const progressPct =
+    questions.length > 0 ? Math.round((answeredCount / questions.length) * 100) : 0;
   const isUnlocked = Boolean(
     (worker?.exam_passed && (worker?.exam_score ?? 0) >= 80) ||
       (lastResult?.passed && lastResult.score >= 80)
@@ -193,42 +198,25 @@ export function InductionQuizScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.container}>
+        <StepHeader currentStep={1} />
+
         {/* Cabecera normativa */}
         <View style={styles.headerCard}>
-          <View style={styles.stepPillRow}>
-            <View style={styles.stepPill}>
-              <Text style={styles.stepPillText}>PASO 1 DE 2 · BLOQUEANTE</Text>
-            </View>
-            <Text style={styles.progressText}>
-              {answeredCount}/{questions.length} respondidas
+          <View style={styles.headerTopRow}>
+            <Text style={styles.headerTitle}>Evaluación IPERC</Text>
+            <Text style={styles.progressCount}>
+              {answeredCount}/{questions.length}
             </Text>
           </View>
-          <Text style={styles.headerTitle}>
-            Inducción de Seguridad IPERC (DS 024-2016-EM)
-          </Text>
           <Text style={styles.headerDesc}>
-            Obtén una calificación mínima de{" "}
-            <Text style={styles.boldAmber}>80%</Text> para desbloquear la carga
-            y auditoría IA de tu Certificado Médico Ocupacional.
+            DS 024-2016-EM · Obtén al menos{" "}
+            <Text style={styles.boldText}>80%</Text> para habilitar la carga de
+            tu Certificado Médico Ocupacional.
           </Text>
-
-          {/* Botones discretos de demostración rápida */}
-          <View style={styles.demoRow}>
-            <Text style={styles.demoLabel}>Demo rápida:</Text>
-            <Pressable
-              style={styles.demoBtnPass}
-              onPress={() => handleQuickDemo("PASS_100")}
-              disabled={submitting}
-            >
-              <Text style={styles.demoBtnPassText}>Aprobar 100%</Text>
-            </Pressable>
-            <Pressable
-              style={styles.demoBtnFail}
-              onPress={() => handleQuickDemo("FAIL_60")}
-              disabled={submitting}
-            >
-              <Text style={styles.demoBtnFailText}>Fallar 60%</Text>
-            </Pressable>
+          <View style={styles.progressTrack}>
+            <View
+              style={[styles.progressFill, { width: `${progressPct}%` }]}
+            />
           </View>
         </View>
 
@@ -243,10 +231,19 @@ export function InductionQuizScreen({ navigation, route }: Props) {
             <Ionicons
               name={lastResult.passed ? "checkmark-circle" : "alert-circle"}
               size={22}
-              color={lastResult.passed ? "#34d399" : "#f87171"}
+              color={lastResult.passed ? colors.success : colors.danger}
             />
             <View style={styles.flex}>
-              <Text style={styles.resultScoreText}>
+              <Text
+                style={[
+                  styles.resultScoreText,
+                  {
+                    color: lastResult.passed
+                      ? colors.successText
+                      : colors.dangerText,
+                  },
+                ]}
+              >
                 Puntaje obtenido: {lastResult.score}%
               </Text>
               <Text style={styles.resultMsgText}>{lastResult.message}</Text>
@@ -256,7 +253,7 @@ export function InductionQuizScreen({ navigation, route }: Props) {
 
         {loadingQuestions ? (
           <ActivityIndicator
-            color="#f59e0b"
+            color={colors.accent}
             size="large"
             style={{ marginVertical: 24 }}
           />
@@ -305,36 +302,72 @@ export function InductionQuizScreen({ navigation, route }: Props) {
           ))
         )}
 
-        {/* Botón de envío */}
-        <Pressable
-          style={[styles.submitBtn, submitting && styles.disabledBtn]}
-          onPress={handleManualSubmit}
-          disabled={submitting}
-        >
-          {submitting ? (
-            <ActivityIndicator color="#020617" />
-          ) : (
-            <>
-              <Ionicons name="checkmark-done" size={20} color="#020617" />
-              <Text style={styles.submitBtnText}>
-                Calificar Inducción IPERC
+        {/* Único CTA primario según el estado de aprobación */}
+        {isUnlocked ? (
+          <View style={styles.actionsBlock}>
+            <Pressable
+              style={styles.primaryBtn}
+              onPress={() => navigation.navigate("MedicalUpload", { workerId })}
+            >
+              <Text style={styles.primaryBtnText}>
+                Continuar al Paso 2: Certificado EMO
               </Text>
-            </>
-          )}
-        </Pressable>
-
-        {/* Acceso al Paso 2 únicamente cuando >= 80% */}
-        {isUnlocked && (
+              <Ionicons
+                name="arrow-forward"
+                size={18}
+                color={colors.onAccent}
+              />
+            </Pressable>
+            <Pressable
+              style={styles.secondaryBtn}
+              onPress={handleManualSubmit}
+              disabled={submitting}
+            >
+              <Text style={styles.secondaryBtnText}>
+                Volver a calificar respuestas
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
           <Pressable
-            style={styles.nextStepBtn}
-            onPress={() => navigation.navigate("MedicalUpload", { workerId })}
+            style={[styles.primaryBtn, submitting && styles.disabledBtn]}
+            onPress={handleManualSubmit}
+            disabled={submitting}
           >
-            <Text style={styles.nextStepBtnText}>
-              Ir al Paso 2: Subir Certificado Médico EMO
-            </Text>
-            <Ionicons name="arrow-forward" size={18} color="#ecfdf5" />
+            {submitting ? (
+              <ActivityIndicator color={colors.onAccent} />
+            ) : (
+              <>
+                <Ionicons
+                  name="checkmark-done"
+                  size={18}
+                  color={colors.onAccent}
+                />
+                <Text style={styles.primaryBtnText}>Enviar respuestas</Text>
+              </>
+            )}
           </Pressable>
         )}
+
+        {/* Opciones de demostración ocultas por defecto */}
+        <CollapsibleTestTools title="Opciones de prueba">
+          <View style={styles.demoRow}>
+            <Pressable
+              style={styles.demoBtn}
+              onPress={() => handleQuickDemo("PASS_100")}
+              disabled={submitting}
+            >
+              <Text style={styles.demoBtnText}>Simular 100% (Aprobar)</Text>
+            </Pressable>
+            <Pressable
+              style={styles.demoBtn}
+              onPress={() => handleQuickDemo("FAIL_60")}
+              disabled={submitting}
+            >
+              <Text style={styles.demoBtnText}>Simular 60% (Reprobar)</Text>
+            </Pressable>
+          </View>
+        </CollapsibleTestTools>
       </ScrollView>
     </SafeAreaView>
   );
@@ -343,218 +376,195 @@ export function InductionQuizScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#020617",
+    backgroundColor: colors.canvas,
   },
   flex: {
     flex: 1,
   },
   container: {
-    padding: 18,
+    padding: spacing.lg,
     paddingBottom: 36,
     gap: 14,
   },
   headerCard: {
-    backgroundColor: "#0f172a",
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     borderWidth: 1,
-    borderColor: "#1e293b",
-    gap: 8,
+    borderColor: colors.border,
+    gap: spacing.sm,
   },
-  stepPillRow: {
+  headerTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  stepPill: {
-    backgroundColor: "#f59e0b22",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#f59e0b66",
-  },
-  stepPillText: {
-    color: "#fbbf24",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  progressText: {
-    color: "#94a3b8",
-    fontSize: 12,
-    fontWeight: "700",
-  },
   headerTitle: {
-    color: "#f8fafc",
+    color: colors.textPrimary,
     fontSize: 18,
     fontWeight: "800",
   },
-  headerDesc: {
-    color: "#94a3b8",
+  progressCount: {
+    color: colors.textSecondary,
     fontSize: 13,
-    lineHeight: 18,
-  },
-  boldAmber: {
-    color: "#fbbf24",
-    fontWeight: "800",
-  },
-  demoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 6,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#1e293b",
-  },
-  demoLabel: {
-    color: "#64748b",
-    fontSize: 11,
     fontWeight: "700",
   },
-  demoBtnPass: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: "#064e3b",
-    borderWidth: 1,
-    borderColor: "#10b98166",
+  headerDesc: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
   },
-  demoBtnPassText: {
-    color: "#6ee7b7",
-    fontSize: 11,
+  boldText: {
+    color: colors.textPrimary,
     fontWeight: "700",
   },
-  demoBtnFail: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: "#450a0a",
-    borderWidth: 1,
-    borderColor: "#ef444466",
+  progressTrack: {
+    height: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceMuted,
+    overflow: "hidden",
+    marginTop: 2,
   },
-  demoBtnFailText: {
-    color: "#fca5a5",
-    fontSize: 11,
-    fontWeight: "700",
+  progressFill: {
+    height: "100%",
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
   },
   resultBanner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: spacing.md,
     padding: 14,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
   resultPass: {
-    backgroundColor: "#064e3b88",
-    borderColor: "#10b981",
+    backgroundColor: colors.successSoft,
+    borderColor: colors.successBorder,
   },
   resultFail: {
-    backgroundColor: "#450a0a88",
-    borderColor: "#ef4444",
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.dangerBorder,
   },
   resultScoreText: {
-    color: "#f8fafc",
     fontSize: 14,
     fontWeight: "800",
   },
   resultMsgText: {
-    color: "#cbd5e1",
+    color: colors.textSecondary,
     fontSize: 12,
     marginTop: 2,
   },
   questionCard: {
-    backgroundColor: "#0f172a",
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     borderWidth: 1,
-    borderColor: "#1e293b",
-    gap: 12,
+    borderColor: colors.border,
+    gap: spacing.md,
   },
   questionTitle: {
-    color: "#f1f5f9",
+    color: colors.textPrimary,
     fontSize: 14,
     fontWeight: "700",
     lineHeight: 20,
   },
   optionsList: {
-    gap: 8,
+    gap: spacing.sm,
   },
   optionItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: "#020617",
-    borderWidth: 1,
-    borderColor: "#1e293b",
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: colors.canvas,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
   },
   optionItemSelected: {
-    borderColor: "#f59e0b",
-    backgroundColor: "#f59e0b14",
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
   },
   radioOuter: {
     width: 18,
     height: 18,
     borderRadius: 9,
     borderWidth: 2,
-    borderColor: "#475569",
+    borderColor: colors.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
   radioOuterSelected: {
-    borderColor: "#f59e0b",
+    borderColor: colors.accent,
   },
   radioInner: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#f59e0b",
+    backgroundColor: colors.accent,
   },
   optionText: {
     flex: 1,
-    color: "#cbd5e1",
+    color: colors.textSecondary,
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 19,
   },
   optionTextSelected: {
-    color: "#fef3c7",
+    color: colors.textPrimary,
     fontWeight: "600",
   },
-  submitBtn: {
-    backgroundColor: "#f59e0b",
-    borderRadius: 14,
+  actionsBlock: {
+    gap: spacing.sm,
+  },
+  primaryBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
     paddingVertical: 15,
+    paddingHorizontal: spacing.lg,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    marginTop: 6,
+    gap: spacing.sm,
   },
   disabledBtn: {
     opacity: 0.6,
   },
-  submitBtnText: {
-    color: "#020617",
+  primaryBtnText: {
+    color: colors.onAccent,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
   },
-  nextStepBtn: {
-    backgroundColor: "#059669",
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    flexDirection: "row",
+  secondaryBtn: {
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
     alignItems: "center",
-    justifyContent: "space-between",
   },
-  nextStepBtnText: {
-    color: "#ecfdf5",
-    fontSize: 14,
-    fontWeight: "800",
+  secondaryBtnText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  demoRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  demoBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    alignItems: "center",
+  },
+  demoBtnText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
   },
 });
-
