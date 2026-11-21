@@ -1,7 +1,7 @@
 # SafeMine AI — Plataforma Multiplataforma de Acreditación Minera, Validación IA y Control de Acceso con EPPs
 
 > **Sistema Corporativo Integral de Seguridad y Salud Ocupacional (SSO) para Minería**  
-> Automatización de convocatorias de personal contratista, validación documental de Constancias Médicas (EMO) con **Google Gemini IA** bajo la normativa peruana **D.S. 024-2016-EM**, acreditación con **Fotocheck QR Digital con almacenamiento Offline**, control de acceso con **detección de EPPs en tiempo real** mediante **AWS Rekognition** y señalización física con microcontrolador **Arduino IoT**.
+> Automatización de convocatorias de personal contratista, validación documental de Constancias Médicas (EMO) con **Google Gemini IA** bajo la normativa peruana **D.S. 024-2016-EM**, acreditación con **Fotocheck QR Digital con almacenamiento Offline**, control de acceso con **detección de EPPs en tiempo real** mediante motor dual (**AWS Rekognition** y **Google Gemini 3.8 Flash Vision**) y telemetría/señalización bidireccional con microcontrolador **Arduino IoT**.
 
 ---
 
@@ -11,32 +11,33 @@ El sistema ha evolucionado de una versión monolítica a un **ecosistema moderno
 
 1. **Plataforma Web Administrativa (`web/`)**:
    - Diseñada exclusivamente para la gestión corporativa de la **Minera** y los **Proveedores Contratistas**.
-   - Gestión de convocatorias, postulación de cuadrillas, generación automática de accesos para operarios, auditoría de cumplimiento SSO/PETS y emisión oficial de reportes de desempeño en **PDF**.
+   - Gestión de convocatorias, postulación de cuadrillas, generación automática de accesos para operarios, auditoría de cumplimiento SSO/PETS, monitoreo de **Telemetría en Vivo de Garita (Arduino IoT)**, **Bitácora de Garita (IoT)** (`GET /api/vision/logs`) y emisión oficial de reportes de desempeño en **PDF**.
    - Aislamiento estricto: los operarios no pueden ingresar a la consola web y son guiados automáticamente a la aplicación móvil.
 
 2. **Aplicación Móvil Nativa (`mobile/`)**:
    - Construida con **React Native + Expo SDK 58** para teléfonos y tablets (Android / iOS).
    - **Módulo Operarios**: Flujo guiado en 3 pasos:
      - **Paso 1 (Inducción IPERC)**: Cuestionario interactivo de inducción en seguridad ($\ge 80\%$ para aprobar).
-     - **Paso 2 (Auditoría Médica EMO con IA)**: Carga de certificado médico en PDF o imagen, analizado en tiempo real por **Google Gemini IA**.
+     - **Paso 2 (Auditoría Médica EMO con IA)**: Carga de certificado médico en PDF o imagen, analizado en tiempo real por **Google Gemini IA** con validación programática de concordancia de DNI entre el certificado y el operario.
      - **Paso 3 (Fotocheck QR Minero)**: Credencial digital holográfica con Código QR dinámico.
    - **Soporte Offline Nativo**: Almacenamiento local mediante `AsyncStorage` (`offlineStorage.ts`) para consultar y exhibir el Fotocheck QR en socavones o faenas sin cobertura de red.
-   - **Modo Garita Móvil**: Escáner de Códigos QR con cámara nativa y captura fotográfica para inspección automática de EPPs mediante visión por computadora en tiempo real.
+   - **Modo Garita Móvil**: Escáner de Códigos QR con cámara nativa y captura fotográfica para inspección automática de EPPs mediante motor dual de visión por computadora (**AWS Rekognition** / **Google Gemini 3.8 Flash Vision**).
 
 3. **Backend con Arquitectura en Capas y Seguridad Robusta (`backend/`)**:
    - Refactorizado bajo el patrón **Controller — Service — Repository — ORM Models**.
    - Autenticación criptográfica con **Tokens JWT (HS256)** y control de acceso basado en roles (**RBAC** con dependencias `require_role` y `require_own_worker_record`).
    - Endpoint de autorregistro corporativo para empresas contratistas con validación de RUC.
-   - WebSockets bidireccionales en `/ws/kiosco` para sincronización instantánea entre la app móvil, el dashboard web y el hardware físico.
+   - WebSockets bidireccionales en `/ws/kiosco` para sincronización instantánea entre la app móvil, el dashboard web y el hardware físico (comandos de semáforo y telemetría de sensores en vivo).
 
-4. **Hardware IoT en Garita (`iot-arduino/`)**:
-   - Puente serial WebSocket en Python (`arduino_bridge.py`) y firmware C++ (`safemine_access_control.ino`).
-   - Semáforo físico: LED Verde (Pin 8 - Acceso Concedido) y LED Rojo + Buzzer de alerta intermitente (Pin 9 - Acceso Denegado por falta de EPPs o credencial inválida).
+4. **Hardware IoT Bidireccional en Garita (`iot-arduino/`)**:
+   - Puente serial WebSocket bidireccional en Python (`arduino_bridge.py`) y firmware C++ no bloqueante con `millis()` (`safemine_access_control.ino`) para **Arduino UNO**.
+   - **Actuadores físicos**: LED Verde (Pin 8 — Acceso Concedido) y LED Rojo + Buzzer activo de alerta intermitente (Pin 9 — Acceso Denegado por falta de EPPs o credencial inválida).
+   - **Sensores físicos**: Sensor ultrasónico **HC-SR04** (Pines 10 y 11 para medición de distancia y detección de presencia en cabina $\le 80\text{ cm}$) y sensor **DHT11** (Pin 12 para temperatura y humedad), transmitiendo telemetría JSON a **1 Hz** (`9600` baudios) hacia `/ws/kiosco` mediante `arduino_bridge.py`.
 
 5. **Infraestructura 100% AWS Cloud y Sincronización Offline-First en Terreno Minero**:
    - Orquestación con `docker-compose.yml` para desplegar en un solo comando en **AWS EC2** (`safemine-backend` en puerto 8000 y `safemine-web` en puerto 3000) con persistencia en **AWS RDS / EBS** y almacenamiento en **Amazon S3**.
    - Arquitectura **Store-and-Forward** en Garita Móvil: valida operarios con el padrón descargado (`GET /api/kiosco/authorized-roster`), encola inspecciones durante cortes de señal satelital en `AsyncStorage` y las sincroniza en bloque hacia AWS (`POST /api/kiosco/sync-offline-logs`).
-   - Guía completa de despliegue y guión de demostración en vivo documentados en [`AWS_DEPLOYMENT_AND_OFFLINE.md`](file:///c:/Users/sucij/OneDrive/Desktop/SafeMine/AWS_DEPLOYMENT_AND_OFFLINE.md).
+   - Guía completa de despliegue y guión de demostración en vivo documentados en [AWS_DEPLOYMENT_AND_OFFLINE.md](./AWS_DEPLOYMENT_AND_OFFLINE.md).
 
 ---
 
@@ -74,10 +75,10 @@ SafeMine/
 │   │   └── utils/          # Almacenamiento offline del fotocheck con AsyncStorage
 │   └── app.json            # Configuración de permisos de cámara y bundle pe.safemine.mobile
 │
-└── iot-arduino/        # Puente Serial WebSocket + Firmware Arduino C++ para Garita
-    ├── arduino_bridge.py   # Script Python que traduce eventos WebSocket a comandos Serial
+└── iot-arduino/        # Puente Serial WebSocket Bidireccional + Firmware Arduino C++ para Garita
+    ├── arduino_bridge.py   # Script Python bidireccional: comandos WS -> Serial y telemetría JSON (1 Hz) -> /ws/kiosco
     └── safemine_access_control/
-        └── safemine_access_control.ino  # Sketch para Arduino UNO / ESP32 (Pines 8 y 9)
+        └── safemine_access_control.ino  # Sketch Arduino UNO (Pines 8/9 Actuadores, 10/11 HC-SR04, 12 DHT11)
 ```
 
 ---
@@ -158,23 +159,32 @@ npx expo start
 
 ---
 
-### Terminal 4 (Opcional): Iniciar el Puente de Hardware Arduino
+### Terminal 4 (Opcional): Iniciar el Puente Bidireccional de Hardware Arduino
 
-```powershell
+```bash
 cd iot-arduino
 
 # 1. Instalar dependencias del puente
 pip install -r requirements.txt
 
-# 2. Conectar al Arduino físico (ejemplo en puerto COM3):
+# 2. Conectar al Arduino UNO físico en macOS / Linux (reemplaza por tu puerto real):
+python arduino_bridge.py --port /dev/cu.usbmodem11301 --ws ws://localhost:8000/ws/kiosco
+
+#    O definiendo el puerto mediante variable de entorno (ARDUINO_PORT o SERIAL_PORT en .env):
+#    ARDUINO_PORT=/dev/cu.usbmodem11301 python arduino_bridge.py --ws ws://localhost:8000/ws/kiosco
+
+# 3. Conectar al Arduino UNO físico en Windows (ejemplo en puerto COM3):
 python arduino_bridge.py --port COM3 --ws ws://localhost:8000/ws/kiosco
 
-# O ejecutar en MODO SIMULACIÓN si no tienes el Arduino conectado (muestra luces y estados en consola):
-python arduino_bridge.py --simulate --ws ws://localhost:8000/ws/kiosco
+# Si el puerto serial no está disponible o no hay Arduino conectado, el puente activa
+# automáticamente el MODO SIMULACIÓN (muestra actuadores en consola y emite telemetría simulada).
 ```
 
-- **Pin 8**: LED Verde (Acceso Permitido — QR válido + EPPs completos).
-- **Pin 9**: LED Rojo + Buzzer (Acceso Denegado — Falta EPPs o no acreditado).
+- **Pin 8**: LED Verde (Acceso Permitido — QR válido + EPPs completos, encendido no bloqueante por 4 s).
+- **Pin 9**: LED Rojo + Buzzer activo (Acceso Denegado — Falta EPPs o no acreditado, parpadeo de 3 s + 2 s fijo).
+- **Pines 10 (`TRIG`) y 11 (`ECHO`)**: Sensor ultrasónico **HC-SR04** para medir distancia (`distancia_cm`) y detectar presencia en cabina ($\le 80\text{ cm}$).
+- **Pin 12**: Sensor **DHT11** para temperatura (`temperatura_c`) y humedad (`humedad_pct`).
+- **Telemetría Serial $\rightarrow$ WebSocket**: El Arduino emite JSON compacto cada `1000 ms` (**1 Hz**, `9600` baudios) y `arduino_bridge.py` lo reenvía en tiempo real a `/ws/kiosco` con el evento `HARDWARE_TELEMETRY`.
 
 ---
 
@@ -214,7 +224,8 @@ La aplicación móvil (`mobile/`) concentra toda la operativa de campo:
                     ▼ (Aprobado)
        ┌────────────────────────┐
        │  Paso 2: Auditoría EMO │ ──► Carga de constancia médica (PDF/Imagen).
-       │   (Medical Upload)     │     Auditoría con Google Gemini IA (D.S. 024-2016-EM).
+       │   (Medical Upload)     │     Auditoría con Google Gemini IA (D.S. 024-2016-EM)
+       │                        │     + validación programática de DNI contra el operario.
        └────────────┬───────────┘
                     ▼ (Dictamen: APTO)
        ┌────────────────────────┐
@@ -231,7 +242,7 @@ En minería subterránea o faenas remotas sin señal móvil:
 
 ### 3. Escáner de Garita Móvil (`GateScannerScreen`)
 - **Fase 1 (Lectura QR)**: Escaneo con la cámara del dispositivo móvil o ingreso de DNI de respaldo. Valida vigencia de la acreditación, examen SSO y EMO.
-- **Fase 2 (Inspección de EPPs con IA)**: Captura de fotografía del operario evaluada en el backend mediante **AWS Rekognition** (`detect_protective_equipment`) comprobando:
+- **Fase 2 (Inspección de EPPs con Motor Dual de IA)**: Captura de fotografía del operario evaluada en el backend mediante **AWS Rekognition** (`detect_protective_equipment`) o mediante el motor alternativo en nube **Google Gemini 3.8 Flash Vision** (activo automáticamente cuando `USE_MOCK_AWS=true` y `USE_MOCK_AI=false`), comprobando:
   - Casco de seguridad (`HEAD_COVER`)
   - Guantes protectores (`HAND_COVER`)
   - Protección facial o lentes (`FACE_COVER`)
@@ -246,9 +257,11 @@ En minería subterránea o faenas remotas sin señal móvil:
 La plataforma web (`web/`) está optimizada para la gestión de escritorio:
 
 ### Portal Minera (`/`)
+- **Telemetría en Vivo de Garita (Arduino IoT)**: Tarjeta superior sincronizada en tiempo real mediante WebSocket (`/ws/kiosco`, evento `HARDWARE_TELEMETRY`) que muestra Temperatura (`°C`) y Humedad (`%`) del sensor **DHT11**, Distancia (`cm`) del sensor ultrasónico **HC-SR04** y estado de **Presencia en Cabina** ($\le 80\text{ cm}$).
 - **Gestión de Requerimientos y Convocatorias**: Creación de nuevos proyectos mineros indicando fechas, especialidades requeridas y EPPs específicos exigidos.
 - **Aprobación de Cuadrillas**: Revisión de propuestas de contratistas. Al hacer clic en *"Aceptar Propuesta"*, el backend crea automáticamente los 10 operarios con credenciales temporales.
 - **Auditoría de Desempeño y Cumplimiento SSO**: Tabla en tiempo real donde se reflejan las asistencias, faltas de EPP detectadas por la cámara de garita, cumplimiento de PETS y observaciones.
+- **Bitácora de Garita (IoT)**: Pestaña dedicada conectada a `GET /api/vision/logs` con el historial cronológico de inspecciones (fecha/hora, trabajador y DNI, fase, estado `VERDE`/`ROJO`, EPPs detectados y faltantes), actualizada automáticamente ante cada evento WebSocket.
 - **Emisión Oficial de Reportes PDF**: Generación de informes formales con firmas de seguridad, tablas de desempeño y sellos de conformidad listos para auditorías de OSINERGMIN / SUNAFIL.
 
 ### Portal Proveedores Contratistas (`/proveedores`)
@@ -340,11 +353,11 @@ EXPO_PUBLIC_API_URL=http://192.168.1.100:8000
 | Capa / Módulo | Tecnologías y Librerías Principales |
 | :--- | :--- |
 | **Backend API** | Python 3.10+, **FastAPI**, **SQLAlchemy ORM**, **Pydantic v2**, Uvicorn, WebSockets nativos, Tokens JWT (HS256 criptográfico). |
-| **Inteligencia Artificial** | **Google Gemini 3.8 Flash** (`google-genai` SDK con Structured Outputs y validación médica D.S. 024-2016-EM Anexo 16). |
-| **Visión por Computadora** | **AWS Rekognition** (`detect_protective_equipment` para Casco, Guantes y Protección Facial) + **AWS S3** (`boto3`). |
+| **Inteligencia Artificial** | **Google Gemini 3.8 Flash** (`google-genai` SDK con Structured Outputs, validación médica D.S. 024-2016-EM Anexo 16 y cruce programático de DNI). |
+| **Visión por Computadora** | Motor dual para detección de EPPs (`HEAD_COVER`, `HAND_COVER`, `FACE_COVER`): **AWS Rekognition** (`detect_protective_equipment`) y motor alternativo **Google Gemini 3.8 Flash Vision** (activo automáticamente cuando `USE_MOCK_AWS=true` y `USE_MOCK_AI=false`) + **AWS S3** (`boto3`). |
 | **Plataforma Web** | **Next.js 15** (App Router), **React 19**, TypeScript, **Tailwind CSS**, Lucide Icons, `jspdf`, `jspdf-autotable`. |
 | **Aplicación Móvil** | **React Native**, **Expo SDK 58**, `@react-navigation/native-stack`, `expo-camera`, `expo-document-picker`, `@react-native-async-storage/async-storage`, `react-native-qrcode-svg`. |
-| **Hardware / IoT** | Microcontroladores **Arduino UNO / ESP32**, C++ Firmware, Python `pyserial` y `websockets` para el puente de control de acceso. |
+| **Hardware / IoT** | Microcontrolador **Arduino UNO** (firmware C++ no bloqueante con `millis()`), actuadores LED Verde (Pin 8) y LED Rojo + Buzzer (Pin 9), sensores **HC-SR04** (Pines 10 y 11, presencia $\le 80\text{ cm}$) y **DHT11** (Pin 12, temperatura/humedad), puente bidireccional en Python con `pyserial` (`9600` baudios, telemetría JSON a 1 Hz) y `websockets` hacia `/ws/kiosco`. |
 | **Base de Datos** | **SQLite** local (desarrollo rápido con seed automático) y preparado para **AWS RDS PostgreSQL** (producción). |
 
 ---
